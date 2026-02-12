@@ -276,14 +276,14 @@ FanControl::FanControl(string fanPath, string fanNamePathOriginal, string rpmPat
     // Open with trunc if file doesn't exist, else open normally
     std::ios_base::openmode mode = std::ios::in | std::ios::out;
     if (!fileExists) {
-    mode |= std::ios::trunc; // Create new file
+        mode |= std::ios::trunc; // Create new file
     }
 
     fanSettingsAutoGenFile.open(autoGenFileName, mode);
 
     if (!fanSettingsAutoGenFile.is_open()) {
-    std::cerr << "Failed to open file: " << autoGenFileName << std::endl;
-    return;
+        std::cerr << "Failed to open file: " << autoGenFileName << std::endl;
+        return;
     }
 
     if (fileExists) {

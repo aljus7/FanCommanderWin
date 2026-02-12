@@ -1,7 +1,7 @@
 PROG = fanCommander
-MAIN = main
-FANCONTROL = fanControl
-READJSON = readJson
+MAIN = src/main
+FANCONTROL = src/fanControl
+READJSON = src/readJson
 
 CC = g++
 STD = c++17
