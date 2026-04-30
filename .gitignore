@@ -2,3 +2,6 @@ fanCommander
 .vscode/settings.json
 .vscode/c_cpp_properties.json
 *_fanSettings
+LibreHardwareMonitor
+output
+.vs

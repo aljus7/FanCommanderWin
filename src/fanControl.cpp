@@ -5,19 +5,19 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include "LHMBridge/LHMBridge.h"
 using json = nlohmann::json;
 
-GetTemperature::GetTemperature(vector<string> tempPath, vector<vector<pair<int, int>>> tempRpmGraph, string function, int maxPwm, int avgTimes, TempSensorServer* tmpSrv, OneSenseReadPerCycle* oneSensePc, bool osrpcState) {
-    if (tempPath.size() == tempRpmGraph.size()) {    
-        //this->tempSensor.resize(tempPath.size());
-        for (int i = 0; i < tempPath.size(); i++) {
-            if (tempPath[i] != "null" && !tempPath[i].empty()) {
-                this->tempSensor.emplace_back(ref(tmpSrv->getTempSenseIfstream(tempPath[i])));
-                this->tempSensorNames.emplace_back(tmpSrv->getTempSenseName(tempPath[i]));
+GetTemperature::GetTemperature(vector<string> tempSensorDevice, vector<string> tempSensorNames ,vector<int> tempSenseIndex, vector<vector<pair<int, int>>> tempRpmGraph, string function, int maxPwm, int avgTimes, OneSenseReadPerCycle* oneSensePc, bool osrpcState) {
+    if (tempSensorDevice.size() == tempRpmGraph.size()) {
+        for (int i = 0; i < tempSensorDevice.size(); i++) {
+            if (!tempSensorDevice[i].empty() && !tempSensorNames[i].empty() && tempSenseIndex[i] >= 0) {
+				cerr << "Temp sensor device path, name or index is invalid!" << endl;
             }
+            this->tempSensorDevice[i] = tempSensorDevice[i];
+			this->tempSensorNames[i] = tempSensorNames[i];
+            this->tempSensorIndexes[i] = tempSenseIndex[i];
         }
-
-        this->tempSensorPaths = tempPath;
 
         this->osrpc = oneSensePc;
         this->osrpcState = osrpcState;
@@ -34,7 +34,7 @@ GetTemperature::GetTemperature(vector<string> tempPath, vector<vector<pair<int, 
         }
         
     } else {
-        cerr << "for every temp path needs to be one tempRpm graph, max 4 sensors per fan permited!" << endl;
+        cerr << "for every temp sensor device needs to be one tempRpm graph, max 4 sensors per fan permited!" << endl;
     }
 
     if(function == "max" || function == "min" || function == "avg") {
@@ -51,14 +51,14 @@ GetTemperature::GetTemperature(vector<string> tempPath, vector<vector<pair<int, 
         this->maxPwm = 255;
     }
 
-    if (this->tempSensor.size() != this->tempRpmGraph.size()) {
-        cerr << "Size mismatch: tempSensor.size() != tempRpmGraph.size()" << std::endl;
-        throw std::invalid_argument("Size mismatch: tempSensor.size() != tempRpmGraph.size()");
+    if (this->tempSensorDevice.size() != this->tempRpmGraph.size()) {
+        cerr << "Size mismatch: tempSensorDevice.size() != tempRpmGraph.size()" << std::endl;
+        throw std::invalid_argument("Size mismatch: tempSensorDevice.size() != tempRpmGraph.size()");
     }
 
     this->avgTimes = avgTimes;
 
-    this->rpms.resize(tempPath.size());
+    this->rpms.resize(tempSensorDevice.size());
 
 }
 
@@ -84,62 +84,22 @@ int GetTemperature::averaging(int pwm) {
 }
 
 void GetTemperature::getRpm() {
-    vector<int> temps(this->tempSensor.size());
+    vector<int> temps(this->tempSensorDevice.size());
     string tempStr;
 
     if (this->osrpcState) {
-        for(int i = 0; i < this->tempSensor.size(); i++) {
+        for(int i = 0; i < this->tempSensorDevice.size(); i++) {
             if (!osrpc->isValueSet(this->tempSensorNames[i])) {
-                // Check if stream is open
-                if (!this->tempSensor[i].get().is_open()) {
-                    std::cerr << "Temperature sensor stream " << i << " is not open!" << std::endl;
-                    temps[i] = 0;
-                    continue;
-                }
-                this->tempSensor[i].get().seekg(0);
-                if (getline(this->tempSensor[i].get(), tempStr)) {
-                    try {
-                        temps[i] = std::stod(tempStr)/1000;
-                        osrpc->setValue(this->tempSensorNames[i], temps[i]);
-                    } catch (const std::invalid_argument& e) {
-                        std::cerr << "Invalid argument: " << e.what() << std::endl;
-                    } catch (const std::out_of_range& e) {
-                        std::cerr << "Out of range: " << e.what() << std::endl;
-                    }
-                } else {
-                    cerr << "Failed to read line (trying to reopen)" << i << endl;
-                    this->tempSensor[i].get().close();
-                    this->tempSensor[i].get().open(this->tempSensorPaths[i]);
-                    i = i - 1; // retry reading
-                }
+                temps[i] = GetDeviceTemp(this->tempSensorDevice[i], this->tempSensorNames[i], this->tempSensorIndexes[i]);
+                osrpc->setValue(this->tempSensorNames[i], temps[i]);
             } else {
                 temps[i] = osrpc->getSetValue();
                 //cout << "Setting saved value " << temps[i] << endl;
             }
         }
     } else {
-        for(int i = 0; i < this->tempSensor.size(); i++) {
-            // Check if stream is open
-            if (!this->tempSensor[i].get().is_open()) {
-                std::cerr << "Temperature sensor stream " << i << " is not open!" << std::endl;
-                temps[i] = 0;
-                continue;
-            }
-            this->tempSensor[i].get().seekg(0);
-            if (getline(this->tempSensor[i].get(), tempStr)) {
-                try {
-                    temps[i] = std::stod(tempStr)/1000;
-                } catch (const std::invalid_argument& e) {
-                    std::cerr << "Invalid argument: " << e.what() << std::endl;
-                } catch (const std::out_of_range& e) {
-                    std::cerr << "Out of range: " << e.what() << std::endl;
-                }
-            } else {
-                cerr << "Failed to read line (trying to reopen)" << i << endl;
-                this->tempSensor[i].get().close();
-                this->tempSensor[i].get().open(this->tempSensorPaths[i]);
-                i = i - 1; // retry reading
-            }
+        for(int i = 0; i < this->tempSensorDevice.size(); i++) {
+            temps[i] = GetDeviceTemp(this->tempSensorDevice[i], this->tempSensorNames[i], this->tempSensorIndexes[i]);    
     }
     }
 

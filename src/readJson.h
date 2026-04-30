@@ -14,8 +14,8 @@ struct SoftwareParam {
 struct FanControlParam {
     // Sensor data
     vector<string> sensorNames;
-    vector<string> tempPaths;
-    vector<string> tempNames;
+    vector<string> sensorNamesDevice;
+    vector<int> deviceIndexes;
     vector<vector<pair<int, int>>> tempRpmGraphs;
     // Fan data
     vector<string> fanControlPaths;
@@ -40,8 +40,8 @@ class JsonConfigReader {
         bool oneSenseReadPc;
 
         vector<string> name;
-        vector<string> tempPath;
-        vector<string> tempNames;
+        vector<string> sensorName;
+        vector<int> deviceIndex;
         vector<vector<pair<int, int>>> tempRpmGraph;
 
         vector<string> fanControlPath;

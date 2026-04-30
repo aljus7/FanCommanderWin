@@ -44,8 +44,8 @@ void JsonConfigReader::readJsonConfig() {
     if (conf.contains("tempSensors") && conf["tempSensors"].is_array()) {
         for (const auto &sensor : conf["tempSensors"]) {
             this->name.push_back(sensor["sensor"].get<string>());
-            this->tempPath.push_back(sensor["path"].get<string>());
-            this->tempNames.push_back(sensor["deviceName"].get<string>());
+            this->sensorName.push_back(sensor["sensorName"].get<string>());
+            this->deviceIndex.push_back(sensor["deviceIndex"].get<int>());
             vector<pair<int, int>> temps;
             for (const auto &graph : sensor["graph"]) {
                 temps.push_back(make_pair(graph["temp"].get<int>(), graph["pwm"].get<int>()));
@@ -101,8 +101,8 @@ void JsonConfigReader::returnJsonConfig(FanControlParam* fanControlParam, Softwa
         }
     }
     fanControlParam->sensorNames = this->name;
-    fanControlParam->tempPaths = this->tempPath;
-    fanControlParam->tempNames = this->tempNames;
+    fanControlParam->sensorNamesDevice = this->sensorName;
+    fanControlParam->deviceIndexes = this->deviceIndex;
     fanControlParam->tempRpmGraphs = this->tempRpmGraph;
 
     fanControlParam->fanControlPaths = this->fanControlPath;
@@ -132,8 +132,8 @@ void JsonConfigReader::printParsedJsonInStdout(FanControlParam* fcp, SoftwarePar
     cout << endl << "Sensors:";
     for (int i = 0; i < fcp->sensorNames.size(); i++) {
         cout << endl << "\tSensor: " << fcp->sensorNames[i] << endl;
-        cout << "\tSensor path: " << fcp->tempPaths[i] << endl;
-        cout << "\tDevice name: " << fcp->tempNames[i] << endl;
+        cout << "\tSensor hardware name: " << fcp->sensorNamesDevice[i] << endl;
+        cout << "\tDevice index: " << fcp->deviceIndexes[i] << endl;
         cout << "\tTemp / Rpm graph:" << endl;
         vector<pair<int, int>> vals = fcp->tempRpmGraphs[i];
         for (const auto &pair : vals) {

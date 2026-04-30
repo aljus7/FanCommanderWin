@@ -8,9 +8,10 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include "LHMBridge/LHMBridge.h"
 using namespace std;
 //const string jsonConfigLocation = "config.json";
-const string jsonConfigLocation = "/etc/fanCommander/config.json";
+const string jsonConfigLocation = "config.json";
 
 atomic<bool> keepRunning(true);
 
@@ -20,76 +21,13 @@ void signalHandler(int signum) {
 }
 
 #include <string>
-#include <cctype>
-
-pair<string, string> split_at_first_digit(const string& s) {
-    for (size_t i = 0; i < s.size(); i++) {
-        if (isdigit(s[i])) {
-            return { s.substr(0, i), s.substr(i) };
-        }
-    }
-    return { s, "" };
-}
-
-string find_hwmon(const string& target_name, const string& targetPath) {
-    
-    string basePath;
-
-    if (target_name.empty()) {
-        cout << "Info: Empty target name provided to find_hwmon(). Returning provided path as fixed: " << targetPath << endl;
-        return targetPath;
-    }
-
-    if (targetPath.empty()) {
-        cout << "Info: Empty target path provided to find_hwmon(). Target name: " << target_name << endl;
-        throw std::invalid_argument("Empty target path provided to find_hwmon().");
-    }
-
-    if (regex_match(targetPath, regex(".*hwmon[0-9].*"))) {
-        basePath = split_at_first_digit(targetPath).first;
-        size_t pos = basePath.find("/hwmon");
-        if (pos != string::npos) {
-            basePath.replace(pos, 6, ""); // remove "/hwmon"
-        } else {
-            throw std::invalid_argument("Provided path \"" + targetPath + "\" is not a valid hwmon path.");
-        }
-    } else {
-        cout << "Info: Provided path \"" << targetPath << "\" is not a hwmon path." << endl;
-        return targetPath;
-    }
-
-    for (const auto& entry : filesystem::directory_iterator(basePath)) {
-        string name_path = entry.path().string() + "/name";
-
-        ifstream name_file(name_path);
-        if (!name_file.is_open())
-            continue;
-
-        string name;
-        getline(name_file, name);
-
-        if (name == target_name) {
-            // Find the suffix after hwmonX
-            size_t hwmon_pos = targetPath.find("/hwmon");
-            if (hwmon_pos != string::npos) {
-                size_t digit_pos = targetPath.find_first_of("0123456789", hwmon_pos + 6);
-                if (digit_pos != string::npos) {
-                    size_t suffix_pos = targetPath.find_first_not_of("0123456789", digit_pos);
-                    string suffix = (suffix_pos != string::npos) ? targetPath.substr(suffix_pos) : "";
-                    return entry.path().string() + suffix;
-                }
-            }
-            return entry.path().string(); // fallback
-        }
-    }
-
-    cout << "Mild error: Could not find hwmon directory for sensor name \"" << target_name << "\". Using provided path instead: " << targetPath << endl;
-    return targetPath;
-}
+#include <cctype>}
 
 int main() {
-    signal(SIGINT, signalHandler);  // Handle Ctrl+C
-    signal(SIGTERM, signalHandler); // Handle kill/pkill
+    //signal(SIGINT, signalHandler);  // Handle Ctrl+C
+    //signal(SIGTERM, signalHandler); // Handle kill/pkill
+
+    std::cout << "START\n" << std::flush;
 
     SoftwareParam *softwareParam = new SoftwareParam();
     FanControlParam *fanControlParam = new FanControlParam();
@@ -106,23 +44,9 @@ int main() {
     vector<string> fanFixedControl;
     vector<string> fanFixedRpm;
 
-    for (const auto& sensorName : fanControlParam->tempNames) {
-        size_t index = &sensorName - &fanControlParam->tempNames[0];
-        string fixedPath = find_hwmon(sensorName, fanControlParam->tempPaths[index]);
-        sensorFixedPaths.push_back(fixedPath);
-    }
-
-    for (const auto& fanControlPath : fanControlParam->fanControlPaths) {
-        size_t index = &fanControlPath - &fanControlParam->fanControlPaths[0];
-        string fixedPath = find_hwmon(fanControlParam->fanControlerNames[index], fanControlPath);
-        fanFixedControl.push_back(fixedPath);
-    }
-
-    for (const auto& fanRpmPath : fanControlParam->fanRpmPaths) {
-        size_t index = &fanRpmPath - &fanControlParam->fanRpmPaths[0];
-        string fixedPath = find_hwmon(fanControlParam->fanControlerNames[index], fanRpmPath);
-        fanFixedRpm.push_back(fixedPath);
-    }
+    ListAllDevices();
+    
+    return 0;
 
     TempSensorServer *senServ = new TempSensorServer(sensorFixedPaths, fanControlParam->sensorNames);
     OneSenseReadPerCycle *oneRead = new OneSenseReadPerCycle();
