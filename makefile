@@ -4,7 +4,7 @@ LHM_SRC = src\LHMBridge\LHMBridge.cpp
 
 VCPKG_INCLUDE = $(USERPROFILE)\vcpkg\installed\x64-windows\include
 
-PROG = output\>fanCommander.exe
+PROG = output\fanCommander.exe
 MAIN = src\main.cpp
 FANCONTROL = src\fanControl.cpp
 READJSON = src\readJson.cpp

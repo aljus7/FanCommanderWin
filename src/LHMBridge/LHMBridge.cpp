@@ -1,4 +1,6 @@
+#define LHM_BRIDGE_EXPORTS
 #include "LHMBridge.h"
+
 #include <iostream>
 #include <msclr/marshal_cppstd.h>
 

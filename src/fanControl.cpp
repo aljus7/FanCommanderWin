@@ -5,18 +5,50 @@
 #include <string>
 #include <thread>
 #include <utility>
-#include "LHMBridge/LHMBridge.h"
+#include <regex>
+#include <locale>
+#include <codecvt>
 using json = nlohmann::json;
 
+DeviceType getDeviceTypeFromString(const std::string& str) {
+    if (str == "CPU") return DeviceType::CPU;
+    if (str == "GPU") return DeviceType::GPU;
+    throw std::invalid_argument("Unknown device type: " + str);
+}
+
 GetTemperature::GetTemperature(vector<string> tempSensorDevice, vector<string> tempSensorNames ,vector<int> tempSenseIndex, vector<vector<pair<int, int>>> tempRpmGraph, string function, int maxPwm, int avgTimes, OneSenseReadPerCycle* oneSensePc, bool osrpcState) {
+	cout << "Initializing GetTemperature with " << tempSensorDevice.size() << " temp sensor devices and " << tempRpmGraph.size() << " temp-rpm graphs." << endl;
+
     if (tempSensorDevice.size() == tempRpmGraph.size()) {
+        this->tempSensorDevice.resize(tempSensorDevice.size());
+        this->tempSensorDeviceNoNumbers.resize(tempSensorDevice.size());
+        this->tempSensorDeviceType.resize(tempSensorDevice.size());
+        this->tempSensorNames.resize(tempSensorDevice.size());
+        this->tempSensorNamesVarchar.resize(tempSensorDevice.size());
+        this->tempSensorIndexes.resize(tempSensorDevice.size());
+        this->uniqueSensorNames.resize(tempSensorDevice.size());
+        
         for (int i = 0; i < tempSensorDevice.size(); i++) {
             if (!tempSensorDevice[i].empty() && !tempSensorNames[i].empty() && tempSenseIndex[i] >= 0) {
 				cerr << "Temp sensor device path, name or index is invalid!" << endl;
             }
+            std::cout << "Accessing index " << i << " of vector<int> with size " << tempSensorDevice.size() << std::endl;
             this->tempSensorDevice[i] = tempSensorDevice[i];
+            std::cout << "Accessing index " << i << " of vector<int> with size " << this->tempSensorDevice.size() << std::endl;
+			this->tempSensorDeviceNoNumbers[i] = regex_replace(regex_replace(tempSensorDevice[i], regex("[0-9]+"), ""), regex("^\\s+|\\s+$"), "");
+            std::cout << "Accessing index " << i << " of vector<int> with size " << this->tempSensorDeviceNoNumbers.size() << std::endl;
+			this->tempSensorDeviceType[i] = getDeviceTypeFromString(this->tempSensorDeviceNoNumbers[i]);
+            std::cout << "Accessing index " << i << " of vector<int> with size " << this->tempSensorDeviceType.size() << std::endl;
 			this->tempSensorNames[i] = tempSensorNames[i];
+            std::cout << "Accessing index " << i << " of vector<int> with size " << this->tempSensorNames.size() << std::endl;
+            wstring wstr = std::wstring_convert<std::codecvt_utf8<wchar_t>>().from_bytes(this->tempSensorNames[i]);
+            this->tempSensorNamesVarchar[i] = wstr;
+            std::cout << "Accessing index " << i << " of vector<int> with size " << this->tempSensorNamesVarchar.size() << std::endl;
+
             this->tempSensorIndexes[i] = tempSenseIndex[i];
+            std::cout << "Accessing index " << i << " of vector<int> with size " << this->tempSensorIndexes.size() << std::endl;
+			this->uniqueSensorNames[i] = this->tempSensorDevice[i] + "_" + this->tempSensorNames[i] + "_" + to_string(this->tempSensorIndexes[i]);
+            std::cout << "Accessing index " << i << " of vector<int> with size " << this->uniqueSensorNames.size() << std::endl;
         }
 
         this->osrpc = oneSensePc;
@@ -89,9 +121,9 @@ void GetTemperature::getRpm() {
 
     if (this->osrpcState) {
         for(int i = 0; i < this->tempSensorDevice.size(); i++) {
-            if (!osrpc->isValueSet(this->tempSensorNames[i])) {
-                temps[i] = GetDeviceTemp(this->tempSensorDevice[i], this->tempSensorNames[i], this->tempSensorIndexes[i]);
-                osrpc->setValue(this->tempSensorNames[i], temps[i]);
+            if (!osrpc->isValueSet(this->uniqueSensorNames[i])) {
+                temps[i] = GetDeviceTemp(this->tempSensorDeviceType[i], this->tempSensorNamesVarchar[i].c_str(), this->tempSensorIndexes[i]);
+                osrpc->setValue(this->uniqueSensorNames[i], temps[i]);
             } else {
                 temps[i] = osrpc->getSetValue();
                 //cout << "Setting saved value " << temps[i] << endl;
@@ -99,7 +131,7 @@ void GetTemperature::getRpm() {
         }
     } else {
         for(int i = 0; i < this->tempSensorDevice.size(); i++) {
-            temps[i] = GetDeviceTemp(this->tempSensorDevice[i], this->tempSensorNames[i], this->tempSensorIndexes[i]);    
+            temps[i] = GetDeviceTemp(this->tempSensorDeviceType[i], this->tempSensorNamesVarchar[i].c_str(), this->tempSensorIndexes[i]);
     }
     }
 
@@ -450,7 +482,7 @@ void FanControl::waitForFanRpmToStabilize() {
 void FanControl::getFeedbackRpm() {
     string rpmString;
     int fanRpm;
-
+    
     if (this->rpmSensor.is_open()) {
         this->rpmSensor.seekg(0);
         if (getline(this->rpmSensor, rpmString)) {
@@ -471,7 +503,7 @@ void FanControl::getFeedbackRpm() {
     } else {
         throw std::runtime_error("Failed to open fan rpm feedback file.");
     }
-
+    
     this->feedBackRpm = fanRpm;
 }
 
@@ -522,8 +554,9 @@ void FanControl::setFanSpeed(int pwm) {
                 }
 
                 if (pwm >= this->minPwmGood) {    
-                    fanControl.seekp(0);
-                    fanControl << pwm << endl;
+                    //fanControl.seekp(0);
+                    //fanControl << pwm << endl;
+					cout << "Setting PWM to " << pwm << " for " << this->fanNamePath << endl;
                 } else {
                     fanControl.seekp(0);
                     fanControl << this->minPwmGood << endl;
@@ -555,11 +588,7 @@ void SetFans::setFanSpeedFromDeclaredRpm() {
 
 
 GetTemperature::~GetTemperature() {
-    for (auto &sensor : this->tempSensor) {
-        if(sensor.get().is_open()) {
-            sensor.get().close();
-        }
-    }
+    
 }
 
 FanControl::~FanControl() {
