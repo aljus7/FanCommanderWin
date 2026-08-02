@@ -23,11 +23,30 @@ void signalHandler(int signum) {
 #include <string>
 #include <cctype>}
 
-int main() {
+int main(int argc, char** argv) {
     //signal(SIGINT, signalHandler);  // Handle Ctrl+C
     //signal(SIGTERM, signalHandler); // Handle kill/pkill
+    bool testFans = false;
+    bool continueAfterTest = false;
 
-    std::cout << "START\n" << std::flush;
+    for (int i = 1; i < argc; i++) {
+        string a = argv[i];
+        if (a == "--testFans" || a == "-tf") {
+            testFans = true;
+        }
+        if (a == "--testFansContinue" || a == "-tfc") {
+            testFans = true;
+            continueAfterTest = true;
+        }
+    }
+
+    ListAllDevices();
+    if (testFans) {
+        TestAllFansSequence();
+        if (!continueAfterTest) {
+            return 0;
+        }
+    }
 
     SoftwareParam *softwareParam = new SoftwareParam();
     FanControlParam *fanControlParam = new FanControlParam();
@@ -43,9 +62,9 @@ int main() {
     vector<string> fanFixedControl = fanControlParam->fanControlPaths;
     vector<string> fanFixedRpm = fanControlParam->fanRpmPaths;
 
-    ListAllDevices();
-
     OneSenseReadPerCycle *oneRead = new OneSenseReadPerCycle();
+
+	cout << "We Are here" << endl;
 
     for (int i = 0; i < fanControlParam->fanControlPaths.size(); i++) {
         

@@ -29,26 +29,19 @@ GetTemperature::GetTemperature(vector<string> tempSensorDevice, vector<string> t
         this->uniqueSensorNames.resize(tempSensorDevice.size());
         
         for (int i = 0; i < tempSensorDevice.size(); i++) {
-            if (!tempSensorDevice[i].empty() && !tempSensorNames[i].empty() && tempSenseIndex[i] >= 0) {
+            if (tempSensorDevice[i].empty() || tempSensorNames[i].empty() || tempSenseIndex[i] < 0) {
 				cerr << "Temp sensor device path, name or index is invalid!" << endl;
+				throw std::invalid_argument("Invalid temp sensor device path, name or index!");
             }
-            std::cout << "Accessing index " << i << " of vector<int> with size " << tempSensorDevice.size() << std::endl;
             this->tempSensorDevice[i] = tempSensorDevice[i];
-            std::cout << "Accessing index " << i << " of vector<int> with size " << this->tempSensorDevice.size() << std::endl;
 			this->tempSensorDeviceNoNumbers[i] = regex_replace(regex_replace(tempSensorDevice[i], regex("[0-9]+"), ""), regex("^\\s+|\\s+$"), "");
-            std::cout << "Accessing index " << i << " of vector<int> with size " << this->tempSensorDeviceNoNumbers.size() << std::endl;
 			this->tempSensorDeviceType[i] = getDeviceTypeFromString(this->tempSensorDeviceNoNumbers[i]);
-            std::cout << "Accessing index " << i << " of vector<int> with size " << this->tempSensorDeviceType.size() << std::endl;
 			this->tempSensorNames[i] = tempSensorNames[i];
-            std::cout << "Accessing index " << i << " of vector<int> with size " << this->tempSensorNames.size() << std::endl;
             wstring wstr = std::wstring_convert<std::codecvt_utf8<wchar_t>>().from_bytes(this->tempSensorNames[i]);
             this->tempSensorNamesVarchar[i] = wstr;
-            std::cout << "Accessing index " << i << " of vector<int> with size " << this->tempSensorNamesVarchar.size() << std::endl;
 
             this->tempSensorIndexes[i] = tempSenseIndex[i];
-            std::cout << "Accessing index " << i << " of vector<int> with size " << this->tempSensorIndexes.size() << std::endl;
 			this->uniqueSensorNames[i] = this->tempSensorDevice[i] + "_" + this->tempSensorNames[i] + "_" + to_string(this->tempSensorIndexes[i]);
-            std::cout << "Accessing index " << i << " of vector<int> with size " << this->uniqueSensorNames.size() << std::endl;
         }
 
         this->osrpc = oneSensePc;
@@ -91,6 +84,15 @@ GetTemperature::GetTemperature(vector<string> tempSensorDevice, vector<string> t
     this->avgTimes = avgTimes;
 
     this->rpms.resize(tempSensorDevice.size());
+
+    // Validate tempsensor can be read
+    for (int i = 0; i < this->tempSensorDevice.size(); i++) {
+        int tempValue = GetDeviceTemp(this->tempSensorDeviceType[i], this->tempSensorNamesVarchar[i].c_str(), this->tempSensorIndexes[i]);
+        if (tempValue < 0) {
+            cerr << "Failed to read temperature from sensor: " << this->uniqueSensorNames[i] << endl;
+            throw std::runtime_error("Failed to read temperature from sensor: " + this->uniqueSensorNames[i]);
+        }
+    }
 
 }
 

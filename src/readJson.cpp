@@ -147,8 +147,8 @@ void JsonConfigReader::printParsedJsonInStdout(FanControlParam* fcp, SoftwarePar
         cout << "\tFan rpm path: " << fcp->fanRpmPaths[i] << endl;
         cout << "\tFan device name: " << fcp->fanControlerNames[i] << endl;
         cout << "\tFan uses sensors: ";
-        vector sensorss = fcp->sensors[i];
-        for(string sensor : sensorss) {
+        vector<string> sensorss = fcp->sensors[i];
+        for(const string &sensor : sensorss) {
             cout << sensor << ", ";
         }
         cout << endl;

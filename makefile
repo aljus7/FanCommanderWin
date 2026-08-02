@@ -1,6 +1,10 @@
+# nmake MSVC Makefile - run in "x64 Native Tools Command Prompt for VS"
+
 LHM_DIR = LibreHardwareMonitor
 LHM_DLL = LHMBridge.dll
+LHM_LIB = LHMBridge.lib
 LHM_SRC = src\LHMBridge\LHMBridge.cpp
+LHM_DLLREF = $(LHM_DIR)\LibreHardwareMonitorLib.dll
 
 VCPKG_INCLUDE = $(USERPROFILE)\vcpkg\installed\x64-windows\include
 
@@ -9,22 +13,26 @@ MAIN = src\main.cpp
 FANCONTROL = src\fanControl.cpp
 READJSON = src\readJson.cpp
 
-GCC = g++
-STD = c++17
+# NOTE: removed /EHsc because /clr is incompatible with /EH options
+CFLAGS = /nologo /MD /W3 /O2
+CLRFLAGS = /clr
+DLLFLAGS = /LD
 
-all: $(LHM_DLL) libLHMBridge.a $(PROG)
+ALL: $(LHM_DLL) $(PROG)
 
 $(LHM_DLL):
-    cl /clr /LD $(LHM_SRC) /Fe$(LHM_DLL) /AI"$(LHM_DIR)" /FU"LibreHardwareMonitorLib.dll"
+	if not exist output mkdir output
+	if not exist "$(LHM_DLLREF)" echo WARNING: "$(LHM_DLLREF)" not found
+	cl $(CFLAGS) $(CLRFLAGS) $(DLLFLAGS) "$(LHM_SRC)" /Fe"$(LHM_DLL)" /I"$(LHM_DIR)" /AI"$(LHM_DIR)" /FU"$(LHM_DLLREF)"
 
-libLHMBridge.a: $(LHM_DLL)
-    gendef $(LHM_DLL)
-    dlltool -d LHMBridge.def -l libLHMBridge.a
+$(PROG): $(LHM_LIB)
+	if not exist output mkdir output
+	cl $(CFLAGS) /Fe"$(PROG)" /I"$(VCPKG_INCLUDE)" "$(MAIN)" "$(FANCONTROL)" "$(READJSON)" "$(LHM_LIB)" /link /subsystem:console
+	copy /Y "$(LHM_DLL)" output
+	if exist "$(LHM_DLLREF)" copy /Y "$(LHM_DLLREF)" output
 
-$(PROG): libLHMBridge.a
-    $(GCC) -std=$(STD) -I"$(VCPKG_INCLUDE)" -o $(PROG) \
-        $(MAIN) $(FANCONTROL) $(READJSON) libLHMBridge.a -Wl,--subsystem,console
-    copy /Y $(LHM_DLL) output\
+$(LHM_LIB): $(LHM_DLL)
+	rem LHMBridge.lib is produced automatically by cl when building the DLL
 
 clean:
-    del $(LHM_DLL) LHMBridge.def LHMBridge.exp LHMBridge.lib LHMBridge.obj libLHMBridge.a $(PROG)
+	-del /Q "$(LHM_DLL)" "$(LHM_LIB)" "$(PROG)" || @echo.

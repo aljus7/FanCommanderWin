@@ -10,11 +10,14 @@
 
 enum DeviceType
 {
-    CPU,
-    GPU
+    CPU = 0,
+    GPU = 1
 };
 
 extern "C" {
-    LHM_BRIDGE_API int GetDeviceTemp(enum DeviceType deviceType, const wchar_t* sensorName, const int deviceOrder);
+    LHM_BRIDGE_API int __stdcall GetDeviceTemp(DeviceType deviceType, const wchar_t* sensorName, int deviceOrder);
+    LHM_BRIDGE_API bool SetFanPwm(int fanIndex, unsigned char pwmValue);
+	LHM_BRIDGE_API float ReadFanRpm(int fanIndex);
     LHM_BRIDGE_API void ListAllDevices();
+    LHM_BRIDGE_API void TestAllFansSequence();
 }
