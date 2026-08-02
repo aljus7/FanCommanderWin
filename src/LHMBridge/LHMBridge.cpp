@@ -460,7 +460,7 @@ extern "C" __declspec(dllexport) void TestAllFansSequence()
                 break;
             }
             cout << " against feedback index " << (reinitK?i:k) << endl;
-            if (k == 0) { 
+            if (k == 0 && reinitK) {
                 if (i < countRpm) {
                     cout << "Trying coresponding sensor" << endl;
                     k = i;
@@ -472,10 +472,10 @@ extern "C" __declspec(dllexport) void TestAllFansSequence()
             }
             int rpmIndex = k;
             bool match = false;
-            for (int j = 0; j < sizeof(steps); j++) {
+            for (int j = 0; j < std::size(steps); j++) {
                 int set = steps[j];
                 SetFanPwm(i, set);
-                std::this_thread::sleep_for(std::chrono::milliseconds(1700));
+                std::this_thread::sleep_for(std::chrono::milliseconds(2000));
                 if (j == 0) {
                     value = ReadFanRpm(rpmIndex);
                     if (value == 0.0) {
