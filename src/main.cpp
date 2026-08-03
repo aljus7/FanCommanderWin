@@ -9,6 +9,8 @@
 #include <fstream>
 #include <iostream>
 #include "LHMBridge/LHMBridge.h"
+#include <string>
+#include <cctype>
 using namespace std;
 //const string jsonConfigLocation = "config.json";
 const string jsonConfigLocation = "config.json";
@@ -19,9 +21,6 @@ void signalHandler(int signum) {
     cout << "\nInterrupt signal (" << signum << ") received.\n";
     keepRunning = false;
 }
-
-#include <string>
-#include <cctype>}
 
 int main(int argc, char** argv) {
     //signal(SIGINT, signalHandler);  // Handle Ctrl+C
@@ -58,15 +57,12 @@ int main(int argc, char** argv) {
     
     vector<SetFans*> setFans;
 
-    vector<string> sensorFixedPaths;
-    vector<string> fanFixedControl = fanControlParam->fanControlPaths;
-    vector<string> fanFixedRpm = fanControlParam->fanRpmPaths;
+    vector<int> fanControl = fanControlParam->fanControlIndexs;
+    vector<int> fanRpm = fanControlParam->fanRpmIndexs;
 
     OneSenseReadPerCycle *oneRead = new OneSenseReadPerCycle();
 
-	cout << "We Are here" << endl;
-
-    for (int i = 0; i < fanControlParam->fanControlPaths.size(); i++) {
+    for (int i = 0; i < fanControlParam->fanControlIndexs.size(); i++) {
         
         vector<string> sensorNames;
         vector<string> sensorNamesDevices;
@@ -85,8 +81,10 @@ int main(int argc, char** argv) {
             }
         }
 
-        setFans.push_back(new SetFans(sensorNames, sensorNamesDevices, deviceIndexes, buildTempTempRpmGraphs, fanControlParam->sensorFunctions[i], fanFixedControl[i], fanFixedRpm[i],
-        fanControlParam->minPwms[i], fanControlParam->maxPwms[i], fanControlParam->startPwms[i], fanControlParam->avgTimes[i], fanControlParam->overrideMax[i], fanControlParam->proportionalFactor[i], fanControlParam->hysteresis[i], oneRead, softwareParam->oneSenseReadPc, fanControlParam->fanControlPaths[i]));
+        string uniqueFanCtrlName = to_string(fanControlParam->fanControlIndexs[i]) + "_" + to_string(fanControlParam->fanRpmIndexs[i]);
+
+        setFans.push_back(new SetFans(sensorNames, sensorNamesDevices, deviceIndexes, buildTempTempRpmGraphs, fanControlParam->sensorFunctions[i], fanControl[i], fanRpm[i],
+        fanControlParam->minPwms[i], fanControlParam->maxPwms[i], fanControlParam->startPwms[i], fanControlParam->avgTimes[i], fanControlParam->overrideMax[i], fanControlParam->proportionalFactor[i], fanControlParam->hysteresis[i], oneRead, softwareParam->oneSenseReadPc, uniqueFanCtrlName));
     }
 
     int balancedRefreshTime = 0;

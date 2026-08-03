@@ -207,28 +207,14 @@ int GetTemperature::getFanRpm() {
     }
 }
 
-FanControl::FanControl(string fanPath, string fanNamePathOriginal, string rpmPath, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis) {
+FanControl::FanControl(int fanIndex, string fanNamePathUnique, int rpmIndex, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis) {
 
-    if (!fanPath.empty() && !rpmPath.empty()) {
-        this->fanNamePath = fanPath;
-        this->fanNamePathOriginal = fanNamePathOriginal;
-        if (fanNamePathOriginal.empty()) {
-            throw std::invalid_argument("Fan control path is empty, make shure to provide valid fan path.");
-        }
-        this->fanControl.open(fanPath);
-        if(fanControl.is_open()) {
-            cout << "Fan control: " << fanPath << " successfully open!" << endl;
-        } else {
-            throw std::runtime_error("Failed to open fan control file.");
-        }
-        this->rpmSensor.open(rpmPath);
-        if (rpmSensor.is_open()) {
-            this->rpmPath = rpmPath;
-            cout << "Fan sensor: " << rpmPath << " sucessfully open!" << endl;
-        } else {
-            throw std::runtime_error("Failed to open rpm sensor file.");
-        }
+    if (fanIndex < 0 && rpmIndex < 0) {
+        throw std::invalid_argument("Fan and rpm index should both be positive integers");
     }
+
+    this->fanPwmIndex = fanIndex;
+    this->fanRpmIndex = rpmIndex;
 
     if (hysteresis < 1 && hysteresis >= 0) {
         this->hysteresisGood = hysteresis*255;
@@ -257,7 +243,7 @@ FanControl::FanControl(string fanPath, string fanNamePathOriginal, string rpmPat
     this->propFactor = propFactor;
 
     regex nonDigit("[^0-9]+");
-    string autoGenFileName = this->stateFilesPath + regex_replace(this->fanNamePathOriginal, nonDigit, "") + this->autoGenFileAppend;
+    string autoGenFileName = this->stateFilesPath + regex_replace(fanNamePathUnique, nonDigit, "") + this->autoGenFileAppend;
 
     if (autoGenFileName.empty()) {
         throw std::invalid_argument("Fan control file doesent contain any digits to create unique auto gen file name. Feel free to MR this issue with better solution.");
@@ -321,49 +307,38 @@ void FanControl::getMinStartPwm(fstream &file) {
 
 void FanControl::writeMinStartPwm(fstream &file) {
     
+    cout << "Probing PWM values. Please Wait (that is only done first time program is launched)" << endl;
+
     // calculating min pwm
-    this->fanControl.seekp(0);
-    this->fanControl << 255 << endl;
+    SetFanPwm(this->fanPwmIndex, 255);
     waitForFanRpmToStabilize();
     for (int i = 255; i >= 0; i--) {
-        this->fanControl.seekp(0);
-        this->fanControl << i << endl;
+        SetFanPwm(this->fanPwmIndex, i);
         waitForFanRpmToStabilize();
-        string rpm;
-        this->rpmSensor.seekg(0);
-        if (getline(this->rpmSensor, rpm)) {
-            if (stod(rpm) == 0) {
-                this->minPwmGood = i;
-                break;
-            } else if (i == 0) {
-                this->minPwmGood = i;
-                break;
-            }
-        } else {
-            cerr << "Failed to read RPM sensor, when probing Min PWM." << endl;
+        int rpm = ReadFanRpm(this->fanRpmIndex);
+        if (rpm == 0) {
+            this->minPwmGood = i;
+            break;
+        } else if (i == 0) {
+            this->minPwmGood = i;
+            break;
         }
     }
 
     // calculationg start pwm and make rpm / pwm coorelation graph
     bool startFound = false;
     for (int i = 0; i <= 255; i++) {
-        this->fanControl.seekp(0);
-        this->fanControl << i << endl;
+        SetFanPwm(this->fanPwmIndex, i);
         waitForFanRpmToStabilize();
-        string rpm;
-        this->rpmSensor.seekg(0);
-        if (getline(this->rpmSensor, rpm)) {
-            if (stod(rpm) > 0 && !startFound) {
-                this->startPwmGood = i;
-                startFound = true;
-            }
-            if (startFound && stod(rpm) == 0) {
-                startFound = false;
-            }
-            this->rpmPwmCoorelation[i] = stod(rpm);
-        } else {
-            cerr << "Failed to read RPM sensor, when probing Start PWM and making rpm - pwm coorelationgraph." << endl;
+        int rpm = ReadFanRpm(this->fanRpmIndex);
+        if (rpm > 0 && !startFound) {
+            this->startPwmGood = i;
+            startFound = true;
         }
+        if (startFound && rpm == 0) {
+            startFound = false;
+        }
+        this->rpmPwmCoorelation[i] = rpm;
     }
 
     // calculating max pwm, if not oveririden
@@ -373,54 +348,41 @@ void FanControl::writeMinStartPwm(fstream &file) {
         int lastInc = 0;
         for (int i = this->startPwmGood; i<=255; i++) {
             if (i >= lastInc) {
-                this->fanControl.seekp(0);
-                this->fanControl << i << endl;
+                SetFanPwm(this->fanPwmIndex, i);
                 if (i == this->startPwmGood) {
                     this_thread::sleep_for(std::chrono::milliseconds(5000));
                 }
                 waitForFanRpmToStabilize();
-                string rpm;
-                this->rpmSensor.seekg(0);
-                if (getline(this->rpmSensor, rpm)) {
-                    if (i == this->startPwmGood)
-                        prevRpm = stod(rpm);
-                    else {
-                        if (!(prevRpm < stod(rpm))) {
-                            for(int j = i+1; j <= 255; j++) {
-                                this->fanControl.seekp(0);
-                                this->fanControl << j << endl;
-                                waitForFanRpmToStabilize();
-                                string rpmSan;
-                                this->rpmSensor.seekg(0);
-                                if (getline(this->rpmSensor, rpmSan)) {
-                                    if(prevRpm < stod(rpmSan)) {
-                                        //if (j > 0)
-                                        if (i < j)    
-                                            lastInc = j;
-                                        prevRpm = stod(rpmSan);
-                                        break;
-                                    } else if (j == 255) {
-                                        this->maxRpm = stod(rpmSan);
-                                        this->maxPwmGood = i;
-                                        quitOuter = true;
-                                        break;
-                                    }
-                                } else {
-                                    cerr << "Failed to read RPM sensor, when probing Max PWM value." << endl;
-                                }
+                int rpm = ReadFanRpm(this->fanRpmIndex);
+                if (i == this->startPwmGood)
+                    prevRpm = rpm;
+                else {
+                    if (!(prevRpm < rpm)) {
+                        for(int j = i+1; j <= 255; j++) {
+                            SetFanPwm(this->fanPwmIndex, j);
+                            waitForFanRpmToStabilize();
+                            int rpmSan = ReadFanRpm(this->fanRpmIndex);
+                            if(prevRpm < rpmSan) {
+                                //if (j > 0)
+                                if (i < j)    
+                                    lastInc = j;
+                                prevRpm = rpmSan;
+                                break;
+                            } else if (j == 255) {
+                                this->maxRpm = rpmSan;
+                                this->maxPwmGood = i;
+                                quitOuter = true;
+                                break;
                             }
                         }
-                        if (quitOuter) {
-                            break;
-                        } else if (i==255) {
-                            this->maxPwmGood = 255;
-                            this->maxRpm = stod(rpm);
-                        }
-                        prevRpm = stod(rpm);
                     }
-
-                } else {
-                    cerr << "Failed to read RPM sensor, when probing Max PWM value." << endl;
+                    if (quitOuter) {
+                        break;
+                    } else if (i==255) {
+                        this->maxPwmGood = 255;
+                        this->maxRpm = rpm;
+                    }
+                    prevRpm = rpm;
                 }
             }
         }
@@ -459,52 +421,28 @@ void FanControl::writeMinStartPwm(fstream &file) {
 }
 
 void FanControl::waitForFanRpmToStabilize() {
-    string fanRpmStr;
+    int fanRpmStr = 0;
     int prevRpm = 256;
     int diff;
     int i = 0;
     do {
-        this->rpmSensor.seekg(0);
-        if (getline(this->rpmSensor, fanRpmStr)) {
-            int fanRpm = stoi(fanRpmStr);
-            if (prevRpm == 256) {    
-                prevRpm = fanRpm;
-                this_thread::sleep_for(std::chrono::milliseconds(1000));
-                diff = abs(prevRpm-fanRpm);
-            } else {
-                this_thread::sleep_for(std::chrono::milliseconds(1000));
-                diff = abs(prevRpm-fanRpm);
-                prevRpm = fanRpm;
-            }
-            ++i;
+        fanRpmStr = ReadFanRpm(this->fanRpmIndex);
+        int fanRpm = fanRpmStr;
+        if (prevRpm == 256) {    
+            prevRpm = fanRpm;
+            this_thread::sleep_for(std::chrono::milliseconds(1000));
+            diff = abs(prevRpm-fanRpm);
+        } else {
+            this_thread::sleep_for(std::chrono::milliseconds(1000));
+            diff = abs(prevRpm-fanRpm);
+            prevRpm = fanRpm;
         }
+        ++i;
     } while(diff > 20 && i < 20);
 }
 
 void FanControl::getFeedbackRpm() {
-    string rpmString;
-    int fanRpm;
-    
-    if (this->rpmSensor.is_open()) {
-        this->rpmSensor.seekg(0);
-        if (getline(this->rpmSensor, rpmString)) {
-            fanRpm = stod(rpmString);
-        } else {
-            this->rpmSensor.close();
-            this->rpmSensor.open(this->rpmPath);
-            if (!this->rpmSensor.is_open()) {
-                throw std::runtime_error("Failed to reopen fan rpm feedback file.");
-            }
-            if (getline(this->rpmSensor, rpmString)) {
-                fanRpm = stod(rpmString);
-            } else {
-                throw std::runtime_error("Failed to read line from reopened fan rpm feedback file.");
-            }
-            cerr << "couldnt getline from rpm fan feedback file, auto fixing was done by reopening file." << endl;
-        }
-    } else {
-        throw std::runtime_error("Failed to open fan rpm feedback file.");
-    }
+    int fanRpm = ReadFanRpm(this->fanRpmIndex);
     
     this->feedBackRpm = fanRpm;
 }
@@ -514,65 +452,56 @@ void FanControl::setFanSpeed(int pwm) {
     int &prevPwm = this->prevSetPwm;
     bool &needChange = this->needsChange;
 
-    if (fanControl.is_open()) {
-        if (pwm <= 255 && pwm >= 0) {
-            if (pwm >= this->minPwmGood && this->feedBackRpm == 0) {
-                if (255 - this->startPwmGood > 10)  {   
-                    fanControl.seekp(0);
-                    fanControl << this->startPwmGood + 10 << endl;
-                } else {
-                    fanControl.seekp(0);
-                    fanControl << this->startPwmGood << endl;
-                    cout << "ATENTION: Critical system failure, fan is likely dead!" << endl;
-                }
+    if (pwm <= 255 && pwm >= 0) {
+        if (pwm >= this->minPwmGood && this->feedBackRpm == 0) {
+            if (255 - this->startPwmGood > 10)  {   
+                SetFanPwm(this->fanPwmIndex, this->startPwmGood + 10);
+            } else {
+                SetFanPwm(this->fanPwmIndex, this->startPwmGood);
+                cout << "ATENTION: Critical system failure, fan is likely dead!" << endl;
             }
-
-            if (this->hysteresisGood > 0) {
-                if (abs(prevPwm-pwm) < this->hysteresisGood) {
-                    pwm = prevPwm;
-                    if (this->propFactor == 0) {
-                        needChange = false;
-                    } 
-                } else {
-                    needChange = true;
-                }
-                prevPwm = pwm;
-            }
-
-            if (this->propFactor > 0 && pwm > this->minPwmGood) {
-                
-                if (pwm > maxPwmGood) {
-                    pwm = maxPwmGood;
-                }
-
-                pwm = this->propFactor * (this->rpmPwmCoorelation[pwm] - this->feedBackRpm) + pwm;
-
-            }
-
-            if (needChange) {
-
-                if (pwm > this->maxPwmGood) {
-                    pwm = maxPwmGood;
-                }
-
-                if (pwm >= this->minPwmGood) {    
-                    //fanControl.seekp(0);
-                    //fanControl << pwm << endl;
-					cout << "Setting PWM to " << pwm << " for " << this->fanNamePath << endl;
-                } else {
-                    fanControl.seekp(0);
-                    fanControl << this->minPwmGood << endl;
-                }
-                
-            }
-
-        } else {
-            cerr << "PWM value must be between 0 and 255." << endl;
-            throw std::out_of_range("PWM value must be between 0 and 255.");
         }
+
+        if (this->hysteresisGood > 0) {
+            if (abs(prevPwm-pwm) < this->hysteresisGood) {
+                pwm = prevPwm;
+                if (this->propFactor == 0) {
+                    needChange = false;
+                } 
+            } else {
+                needChange = true;
+            }
+            prevPwm = pwm;
+        }
+
+        if (this->propFactor > 0 && pwm > this->minPwmGood) {
+                
+            if (pwm > maxPwmGood) {
+                pwm = maxPwmGood;
+            }
+
+            pwm = this->propFactor * (this->rpmPwmCoorelation[pwm] - this->feedBackRpm) + pwm;
+
+        }
+
+        if (needChange) {
+
+            if (pwm > this->maxPwmGood) {
+                pwm = maxPwmGood;
+            }
+
+            if (pwm >= this->minPwmGood) {    
+                SetFanPwm(this->fanPwmIndex, pwm);
+				cout << "Setting PWM to " << pwm << " for " << this->fanPwmIndex << endl;
+            } else {
+                SetFanPwm(this->fanPwmIndex, this->minPwmGood);
+            }
+                
+        }
+
     } else {
-        cerr << "Fancontrol cant set fanspeed, fanRpmPath file not open anymore." << endl;
-        throw std::runtime_error("Failed to open fan control file.");
+        cerr << "PWM value must be between 0 and 255." << endl;
+        throw std::out_of_range("PWM value must be between 0 and 255.");
     }
 }
 
@@ -594,12 +523,6 @@ GetTemperature::~GetTemperature() {
 }
 
 FanControl::~FanControl() {
-
-    if (this->fanControl.is_open())
-        this->fanControl.close();
-
-    if (this->rpmSensor.is_open())
-        this->rpmSensor.close();
 
     if (this->fanSettingsAutoGenFile.is_open())
         this->fanSettingsAutoGenFile.close();

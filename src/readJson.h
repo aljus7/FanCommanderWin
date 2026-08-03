@@ -18,9 +18,8 @@ struct FanControlParam {
     vector<int> deviceIndexes;
     vector<vector<pair<int, int>>> tempRpmGraphs;
     // Fan data
-    vector<string> fanControlPaths;
-    vector<string> fanRpmPaths;
-    vector<string> fanControlerNames;
+    vector<int> fanControlIndexs;
+    vector<int> fanRpmIndexs;
     vector<vector<string>> sensors;
     vector<string> sensorFunctions;
     vector<int> avgTimes;
@@ -44,9 +43,8 @@ class JsonConfigReader {
         vector<int> deviceIndex;
         vector<vector<pair<int, int>>> tempRpmGraph;
 
-        vector<string> fanControlPath;
-        vector<string> fanRpmPath;
-        vector<string> fanControlerNames;
+        vector<int> fanControlIndex;
+        vector<int> fanRpmIndex;
         vector<vector<string>> sensors;
         vector<string> sensorFunc;
         vector<int> avgTimes;

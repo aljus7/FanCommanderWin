@@ -70,14 +70,12 @@ using namespace std;
     class FanControl {
         private:
             string const autoGenFileAppend = "_fanSettings";
-            string fanNamePath;
-            string fanNamePathOriginal;
+            int fanPwmIndex;
+            int fanRpmIndex;
             const string stateFilesPath = "fanCommander/";
 
-            string rpmPath;
- 
-            ofstream fanControl;
-            ifstream rpmSensor;
+            string rpmIndex;
+
             fstream fanSettingsAutoGenFile;
             int minPwmGood;
             int minPwm;
@@ -98,7 +96,7 @@ using namespace std;
 
             int feedBackRpm;
         public: 
-            FanControl(string fanPath, string fanNamePathOriginal, string rpmPath, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis);
+            FanControl(int fanPath, string fanNamePathOriginal, int rpmPath, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis);
             void setFanSpeed(int pwm);
             void getFeedbackRpm();
             ~FanControl();
@@ -111,7 +109,7 @@ using namespace std;
 
         public:
             SetFans(vector<string> tempSensorDevice, vector<string> tempSensorNames, vector<int> tempSenseIndex, vector<vector<pair<int, int>>> tempRpmGraph, 
-                string function, string fanPath, string rmpPath, int minPwm, int maxPwm, int startPwm, int avgTimes, bool overrideMax, double propFactor, double hysteresis, 
+                string function, int fanPath, int rmpPath, int minPwm, int maxPwm, int startPwm, int avgTimes, bool overrideMax, double propFactor, double hysteresis, 
                 OneSenseReadPerCycle* osrpc, bool osrpcState, string fanNamePathOriginal) :
             FanControl(fanPath, fanNamePathOriginal, rmpPath, minPwm, maxPwm, startPwm, overrideMax, propFactor, hysteresis), 
             GetTemperature(tempSensorDevice, tempSensorNames, tempSenseIndex, tempRpmGraph, function, maxPwm, avgTimes, osrpc, osrpcState) {
