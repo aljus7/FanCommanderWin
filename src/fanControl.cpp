@@ -8,6 +8,8 @@
 #include <regex>
 #include <locale>
 #include <codecvt>
+#include <filesystem>
+#include <eventLogger.h>
 using json = nlohmann::json;
 
 DeviceType getDeviceTypeFromString(const std::string& str) {
@@ -30,7 +32,7 @@ GetTemperature::GetTemperature(vector<string> tempSensorDevice, vector<string> t
         
         for (int i = 0; i < tempSensorDevice.size(); i++) {
             if (tempSensorDevice[i].empty() || tempSensorNames[i].empty() || tempSenseIndex[i] < 0) {
-				cerr << "Temp sensor device path, name or index is invalid!" << endl;
+				errorLog("Temp sensor device path, name or index is invalid!");
 				throw std::invalid_argument("Invalid temp sensor device path, name or index!");
             }
             this->tempSensorDevice[i] = tempSensorDevice[i];
@@ -51,33 +53,34 @@ GetTemperature::GetTemperature(vector<string> tempSensorDevice, vector<string> t
             for (int i = 0; i < tempRpmGraph.size(); i++) {
                 if (tempRpmGraph[i].size() >= 3) {
                     this->tempRpmGraph = tempRpmGraph;
+					addLoggingAreaMessage(LOG_AREA_FANCONTROL, "Sucessfull tempRpmGraph size validation");
                     cout << "Sucessfull tempRpmGraph size validation" << endl;
                 } else {
-                    cerr << "Only min 3 temp-rpm points permited!" << endl;
+                    errorLog("Only min 3 temp-rpm points permited!");
                 }
             }
         }
         
     } else {
-        cerr << "for every temp sensor device needs to be one tempRpm graph, max 4 sensors per fan permited!" << endl;
+        errorLog("for every temp sensor device needs to be one tempRpm graph, max 4 sensors per fan permited!");
     }
 
     if(function == "max" || function == "min" || function == "avg") {
         this->function = function;
     } else {
-        cerr << "function can be only of 'min', 'max', 'avg' value (defaulting to max)" << endl;
+        errorLog("function can be only of 'min', 'max', 'avg' value (defaulting to max)");
         this->function = "max";
     }
 
     if(maxPwm <= 255 && maxPwm > 0) {
         this->maxPwm = maxPwm;
     } else {
-        cerr << "maxPwm was set over 255 value or under 1 value. (defaulting to 255)" << endl;
+        errorLog("maxPwm was set over 255 value or under 1 value. (defaulting to 255)");
         this->maxPwm = 255;
     }
 
     if (this->tempSensorDevice.size() != this->tempRpmGraph.size()) {
-        cerr << "Size mismatch: tempSensorDevice.size() != tempRpmGraph.size()" << std::endl;
+        errorLog("Size mismatch: tempSensorDevice.size() != tempRpmGraph.size()");
         throw std::invalid_argument("Size mismatch: tempSensorDevice.size() != tempRpmGraph.size()");
     }
 
@@ -85,11 +88,10 @@ GetTemperature::GetTemperature(vector<string> tempSensorDevice, vector<string> t
 
     this->rpms.resize(tempSensorDevice.size());
 
-    // Validate tempsensor can be read
     for (int i = 0; i < this->tempSensorDevice.size(); i++) {
         int tempValue = GetDeviceTemp(this->tempSensorDeviceType[i], this->tempSensorNamesVarchar[i].c_str(), this->tempSensorIndexes[i]);
         if (tempValue < 0) {
-            cerr << "Failed to read temperature from sensor: " << this->uniqueSensorNames[i] << endl;
+            errorLog("Failed to read temperature from sensor: " + this->uniqueSensorNames[i]);
             throw std::runtime_error("Failed to read temperature from sensor: " + this->uniqueSensorNames[i]);
         }
     }
@@ -111,7 +113,8 @@ int GetTemperature::averaging(int pwm) {
             sum += value;
         }
         return sum / this->lastPwmValues.size();
-    } else {
+    } else {   
+		errorLog("Averaging error: array is not populated yet.");
         std::cerr << "Averaging error: array is not populated yet." << std::endl;
         return 255;
     }
@@ -140,6 +143,7 @@ void GetTemperature::getRpm() {
 
     for (size_t j = 0; j < temps.size(); ++j) {
         if (j >= tempRpmGraph.size()) {
+			errorLog("Index " + to_string(j) + " out of bounds for tempRpmGraph");
             std::cerr << "Index " << j << " out of bounds for tempRpmGraph" << std::endl;
             continue;
         }
@@ -198,6 +202,7 @@ int GetTemperature::getFanRpm() {
         }
 
         else {
+			errorLog("function value needs to be either 'max', 'min' or 'avg'");
             cerr << "function value needs to be either 'max', 'min' or 'avg'" << endl;
             return 255;
         }
@@ -210,6 +215,7 @@ int GetTemperature::getFanRpm() {
 FanControl::FanControl(int fanIndex, string fanNamePathUnique, int rpmIndex, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis) {
 
     if (fanIndex < 0 && rpmIndex < 0) {
+        errorLog("Fan and rpm index should both be positive integers");
         throw std::invalid_argument("Fan and rpm index should both be positive integers");
     }
 
@@ -219,6 +225,7 @@ FanControl::FanControl(int fanIndex, string fanNamePathUnique, int rpmIndex, int
     if (hysteresis < 1 && hysteresis >= 0) {
         this->hysteresisGood = hysteresis*255;
     } else {
+        errorLog("Hysteresis is invalid, defaulting to 0");
         cerr << "Hysteresis is invalid, defaulting to 0" << endl;
         this->hysteresisGood = 0;
     }
@@ -228,6 +235,7 @@ FanControl::FanControl(int fanIndex, string fanNamePathUnique, int rpmIndex, int
         this->startPwm = startPwm;
         this->maxPwmGood = maxPwm;
     } else {
+		addLoggingAreaMessage(LOG_AREA_FANCONTROL, "ATENTION: Some of the values of min/start/max pwm do not match requirements! Default sane values used. Some of the values will be calculated.");
         cout << "ATENTION: Some of the values of min/start/max pwm do not match requirements! Default sane values used. Some of the values will be calculated." << endl;
         this->minPwm = 0;
         this->startPwm = 0;
@@ -242,10 +250,13 @@ FanControl::FanControl(int fanIndex, string fanNamePathUnique, int rpmIndex, int
 
     this->propFactor = propFactor;
 
+    filesystem::create_directories(this->stateFilesPath);
+
     regex nonDigit("[^0-9]+");
     string autoGenFileName = this->stateFilesPath + regex_replace(fanNamePathUnique, nonDigit, "") + this->autoGenFileAppend;
 
     if (autoGenFileName.empty()) {
+		errorLog("Fan control file doesn't contain any digits to create unique auto gen file name. Feel free to MR this issue with better solution.");
         throw std::invalid_argument("Fan control file doesent contain any digits to create unique auto gen file name. Feel free to MR this issue with better solution.");
     }
 
@@ -254,15 +265,17 @@ FanControl::FanControl(int fanIndex, string fanNamePathUnique, int rpmIndex, int
     checkFile.close();
 
     // Open with trunc if file doesn't exist, else open normally
-    std::ios_base::openmode mode = std::ios::in | std::ios::out;
+    std::ios_base::openmode mode = std::ios::out | std::ios::in;
+
     if (!fileExists) {
-        mode |= std::ios::trunc; // Create new file
+        mode = std::ios::out | std::ios::trunc;  // create new file
     }
 
     fanSettingsAutoGenFile.open(autoGenFileName, mode);
 
     if (!fanSettingsAutoGenFile.is_open()) {
-        std::cerr << "Failed to open file: " << autoGenFileName << std::endl;
+		errorLog("Failed to open autoGen file: " + autoGenFileName);
+        std::cerr << "Failed to open autoGen file: " << autoGenFileName << std::endl;
         return;
     }
 
@@ -300,6 +313,7 @@ void FanControl::getMinStartPwm(fstream &file) {
             }
         }
     } else {
+		errorLog("File is not open!");
         std::cerr << "File is not open!" << std::endl;
         throw std::runtime_error("Failed to open saved values file.");
     }
@@ -307,6 +321,7 @@ void FanControl::getMinStartPwm(fstream &file) {
 
 void FanControl::writeMinStartPwm(fstream &file) {
     
+	addLoggingAreaMessage(LOG_AREA_FANCONTROL, "Probing PWM values. Please Wait (that is only done first time program is launched)");
     cout << "Probing PWM values. Please Wait (that is only done first time program is launched)" << endl;
 
     // calculating min pwm
@@ -389,11 +404,13 @@ void FanControl::writeMinStartPwm(fstream &file) {
     }
 
     if (this->startPwm > this->startPwmGood) {
+		addLoggingAreaMessage(LOG_AREA_FANCONTROL, "Custom StartPwm value set that is higher than real one, using custiom value");
         cout << "Custom StartPwm value set that is higher than real one, using custiom value" << endl;
         this->startPwmGood = this->startPwm;
     }
 
     if (this->minPwm > this->minPwmGood) {
+		addLoggingAreaMessage(LOG_AREA_FANCONTROL, "Custom MinPwm value set that is higher than real one, using custiom value");
         cout << "Custom MinPwm value set that is higher than real one, using custiom value" << endl;
         this->minPwmGood = this->minPwm;
     }
@@ -414,7 +431,7 @@ void FanControl::writeMinStartPwm(fstream &file) {
         }
         file << jObject.dump(4);
     } else {
-        std::cerr << "File is not open!" << std::endl;
+        errorLog("Internal settings file is not open!");
         throw std::runtime_error("Failed to open saved values file.");
     }
         
@@ -458,6 +475,7 @@ void FanControl::setFanSpeed(int pwm) {
                 SetFanPwm(this->fanPwmIndex, this->startPwmGood + 10);
             } else {
                 SetFanPwm(this->fanPwmIndex, this->startPwmGood);
+				errorLog("ATENTION: Critical system failure, fan is likely dead!");
                 cout << "ATENTION: Critical system failure, fan is likely dead!" << endl;
             }
         }
@@ -492,7 +510,7 @@ void FanControl::setFanSpeed(int pwm) {
 
             if (pwm >= this->minPwmGood) {    
                 SetFanPwm(this->fanPwmIndex, pwm);
-				cout << "Setting PWM to " << pwm << " for " << this->fanPwmIndex << endl;
+				//cout << "Setting PWM to " << pwm << " for " << this->fanPwmIndex << endl;
             } else {
                 SetFanPwm(this->fanPwmIndex, this->minPwmGood);
             }
@@ -500,6 +518,7 @@ void FanControl::setFanSpeed(int pwm) {
         }
 
     } else {
+		errorLog("PWM value must be between 0 and 255.");
         cerr << "PWM value must be between 0 and 255." << endl;
         throw std::out_of_range("PWM value must be between 0 and 255.");
     }
@@ -527,68 +546,6 @@ FanControl::~FanControl() {
     if (this->fanSettingsAutoGenFile.is_open())
         this->fanSettingsAutoGenFile.close();
 
-}
-
-
-TempSensorServer::TempSensorServer(vector<string> tempPaths, vector<string> sensorName) {
-
-    if (tempPaths.size() > 0 && tempPaths.size() == sensorName.size()) {
-        for (int i = 0; i < tempPaths.size(); i++) {
-            this->tempSensorNamePathCoor.push_back(make_pair(sensorName[i], tempPaths[i]));
-        }
-
-        for (int i = 0; i < this->tempSensorNamePathCoor.size(); i++) {
-            const string& path = this->tempSensorNamePathCoor[i].second;
-            bool match = false;
-            if (this->tempSensor.size() == 0) {
-                this->tempSensorStreams.emplace_back(path, ios::in);
-                if (!this->tempSensorStreams.back().is_open()) {
-                    tempSensorStreams.pop_back();
-                    throw std::runtime_error("Failed to open file: " + path);
-                }
-                this->tempSensor.emplace(path, ref(tempSensorStreams.back()));
-            } else {
-                auto val = this->tempSensor.find(path);
-                if (val != this->tempSensor.end()) {
-                    match = true;
-                }
-                if (!match) {
-                    this->tempSensorStreams.emplace_back(path, ios::in);
-                    if (!this->tempSensorStreams.back().is_open()) {
-                        tempSensorStreams.pop_back();
-                        throw std::runtime_error("Failed to open file: " + path);
-                    }
-                    this->tempSensor.emplace(path, ref(this->tempSensorStreams.back()));
-                }
-            }
-        }
-    } else {
-        throw std::invalid_argument("tempPaths and sensorName must have the same size and should not be empty");
-    }
-
-}
-
-ifstream& TempSensorServer::getTempSenseIfstream(const string &sensorPath) {
-    auto it = this->tempSensor.find(sensorPath);
-    if (it == this->tempSensor.end()) {
-        throw std::runtime_error("Sensor path not found: " + sensorPath);
-    }
-
-    ifstream& stream = it->second.get();
-    if (!stream.is_open()) {
-        throw std::runtime_error("Sensor stream for path " + sensorPath + " is not open!");
-    }
-
-    return stream;
-}
-
-string TempSensorServer::getTempSenseName(const string &sensorPath) {
-    for (auto& tempSensPair : this->tempSensor) {
-        if (tempSensPair.first == sensorPath) {
-            return tempSensPair.first;
-        }
-    }
-    throw std::runtime_error("Sensor path not found: " + sensorPath);
 }
 
 bool OneSenseReadPerCycle::isValueSet(string& senseName) {

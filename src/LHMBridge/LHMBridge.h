@@ -7,6 +7,9 @@
 #endif
 
 #include <string>
+#include <src/eventLogger.h>
+
+#define LOG_AREA_LHM "Initialization"
 
 enum DeviceType
 {
@@ -20,4 +23,5 @@ extern "C" {
 	LHM_BRIDGE_API float ReadFanRpm(int fanIndex);
     LHM_BRIDGE_API void ListAllDevices();
     LHM_BRIDGE_API void TestAllFansSequence();
+    LHM_BRIDGE_API void logLhmArea();
 }

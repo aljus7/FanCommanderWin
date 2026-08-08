@@ -357,11 +357,13 @@ extern "C" __declspec(dllexport) void ListAllDevices()
     LHMHost::EnsureInitialized();
 
     cout << "--------------- SENDORS: ---------------" << endl;
+    addLoggingAreaMessage(LOG_AREA_LHM, "--------------- SENDORS: ---------------");
 
     for each(IHardware ^ hw in LHMHost::computer->Hardware) {
         if (hw->HardwareType == HardwareType::Cpu)
         {
             cout << "CPU: " << marshal_as<string>(hw->Name) << endl;
+			addLoggingAreaMessage(LOG_AREA_LHM, "CPU: " + marshal_as<string>(hw->Name));
             hw->Update();
             for each(ISensor ^ sensor in hw->Sensors)
             {
@@ -371,6 +373,7 @@ extern "C" __declspec(dllexport) void ListAllDevices()
                         << " - Value: "
                         << (sensor->Value.HasValue ? to_string(sensor->Value.Value) : "N/A")
                         << endl;
+					addLoggingAreaMessage(LOG_AREA_LHM, " Sensor: " + marshal_as<string>(sensor->Name) + " - Value: " + (sensor->Value.HasValue ? to_string(sensor->Value.Value) : "N/A"));
                 }
             }
         }
@@ -379,6 +382,7 @@ extern "C" __declspec(dllexport) void ListAllDevices()
             hw->HardwareType == HardwareType::GpuIntel)
         {
             cout << "GPU: " << marshal_as<string>(hw->Name) << endl;
+			addLoggingAreaMessage(LOG_AREA_LHM, "GPU: " + marshal_as<string>(hw->Name));
             hw->Update();
             for each(ISensor ^ sensor in hw->Sensors)
             {
@@ -388,22 +392,26 @@ extern "C" __declspec(dllexport) void ListAllDevices()
                         << " - Value: "
                         << (sensor->Value.HasValue ? to_string(sensor->Value.Value) : "N/A")
                         << endl;
+					addLoggingAreaMessage(LOG_AREA_LHM, " Sensor: " + marshal_as<string>(sensor->Name) + " - Value: " + (sensor->Value.HasValue ? to_string(sensor->Value.Value) : "N/A"));
                 }
             }
         }
     }
 
     cout << "---------------- FANS: ----------------" << endl;
+    addLoggingAreaMessage(LOG_AREA_LHM, "---------------- FANS: ----------------");
 
     InitializeSuperIOCache();
     auto controls = LHMHost::cachedControls;
 
     cout << "Found " << controls->Count << " fan/s" << endl;
+	addLoggingAreaMessage(LOG_AREA_LHM, "Found " + to_string(controls->Count) + " fan/s");
 
     auto rpmSensors = LHMHost::cachedFanSensors;
 
     if (controls->Count != rpmSensors->Count) {
         std::cout << "Number of fan controls (" << controls->Count << ") and number of sensors (" << rpmSensors->Count << ") doesn't match!\n";
+        addLoggingAreaMessage(LOG_AREA_LHM, "Number of fan controls (" + to_string(controls->Count) + ") and number of sensors (" + to_string(rpmSensors->Count) + ") doesn't match!");
     }
 
     int count = System::Math::Min(controls->Count, rpmSensors->Count);
@@ -411,11 +419,13 @@ extern "C" __declspec(dllexport) void ListAllDevices()
         auto sensor = rpmSensors[i];
         if (sensor == nullptr || !sensor->Value.HasValue) {
             std::cout << "control: " << i << " rpm: N/A\n";
+            addLoggingAreaMessage(LOG_AREA_LHM, "control: " + to_string(i) + " rpm: N/A");
         }
         else {
             float f = sensor->Value.Value;
             int rpm = (int)System::Math::Round(f); // round to nearest int
             std::cout << "control: " << i << " rpm: " << rpm << "\n";
+			addLoggingAreaMessage(LOG_AREA_LHM, "control: " + to_string(i) + " rpm: " + to_string(rpm));
         }
     }
 
@@ -427,22 +437,24 @@ extern "C" __declspec(dllexport) void TestAllFansSequence()
     InitializeSuperIOCache();
     auto controls = LHMHost::cachedControls;
     if (controls == nullptr) { 
-        cout << "pwmControls not initialized" << endl;
+        addLoggingAreaMessage(LOG_AREA_LHM, "pwmControls not initialized");
         return; 
     }
 
     auto rpmSensors = LHMHost::cachedFanSensors;
     if (rpmSensors == nullptr) { 
-        cout << "rpmSensors not initialized" << endl;
+        addLoggingAreaMessage(LOG_AREA_LHM, "rpmSensors not initialized");
         return; 
     }
 
     int steps[3] = { 220, 150, 220 };
 
     std::cout << endl << endl << "TestAllFansSequence: found " << controls->Count << " controls\n";
+	addLoggingAreaMessage(LOG_AREA_LHM, "TestAllFansSequence: found " + to_string(controls->Count) + " controls");
 
     if (controls->Count != rpmSensors->Count) {
         std::cout << "Number of fan controls (" << controls->Count << ") and number of sensors (" << rpmSensors->Count << ") doesn't match!\n";
+        addLoggingAreaMessage(LOG_AREA_LHM, "Number of fan controls (" + to_string(controls->Count) + ") and number of sensors (" + to_string(rpmSensors->Count) + ") doesn't match!");
     }
 
     cout << endl;
@@ -451,18 +463,22 @@ extern "C" __declspec(dllexport) void TestAllFansSequence()
     int countRpm = rpmSensors->Count;
     for (int i = 0; i < countCtrl; i++) {
         cout << "Testing control index " << i;
+		addLoggingAreaMessage(LOG_AREA_LHM, "Testing control index " + to_string(i));
         float value = 0.0;
         bool reinitK = true;
         bool skipCtrl = false;
         for (int k = 0; k < countRpm; k++) {
             if (skipCtrl) {
                 cout << "Skipping that fan" << endl << endl;
+				addLoggingAreaMessage(LOG_AREA_LHM, "Skipping that fan");
                 break;
             }
             cout << " against feedback index " << (reinitK?i:k) << endl;
+			addLoggingAreaMessage(LOG_AREA_LHM, " against feedback index " + to_string((reinitK?i:k)));
             if (k == 0 && reinitK) {
                 if (i < countRpm) {
                     cout << "Trying coresponding sensor" << endl;
+					addLoggingAreaMessage(LOG_AREA_LHM, "Trying coresponding sensor");
                     k = i;
                 }
             } 
@@ -508,10 +524,17 @@ extern "C" __declspec(dllexport) void TestAllFansSequence()
             }
             if (match) {
                 cout << "#### FAN " << i << " matches RPM SENSOR " << k << " ####" << endl << endl;
+				addLoggingAreaMessage(LOG_AREA_LHM, "#### FAN " + to_string(i) + " matches RPM SENSOR " + to_string(k) + " ####");
                 break;
             }
         }
     }
 
     std::cout << "TestAllFansSequence: done\n";
+	addLoggingAreaMessage(LOG_AREA_LHM, "TestAllFansSequence: done");
+}
+
+extern "C" __declspec(dllexport) void logLhmArea()
+{
+	logLoggingArea(LOG_AREA_LHM);
 }

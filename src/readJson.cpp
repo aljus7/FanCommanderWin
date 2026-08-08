@@ -25,6 +25,7 @@ void JsonConfigReader::readJsonConfig() {
     try {
         conf = json::parse(jsonConfig);
     } catch (const json::parse_error& e) {
+		errorLog("Config json is invalid: \n" + std::string(e.what()));
         throw std::invalid_argument("Config json is invalid: \n" + std::string(e.what()));
     }
     
@@ -38,6 +39,7 @@ void JsonConfigReader::readJsonConfig() {
         else
             this->oneSenseReadPc = false;
     } else {
+        errorLog("'Settings' object in config should exist.");
         throw invalid_argument("'Settings' object in config should exist.");
     }
 
@@ -53,6 +55,7 @@ void JsonConfigReader::readJsonConfig() {
             this->tempRpmGraph.push_back(temps);
         }
     } else {
+        errorLog("'tempSensors' array sould exist in config.");
         throw invalid_argument("'tempSensors' array sould exist in config.");
     }
 
@@ -75,6 +78,7 @@ void JsonConfigReader::readJsonConfig() {
             this->hysteresis.push_back(fan["hysteresis"].get<double>());
         }
     } else {
+        errorLog("'fans' array sould exist in config.");
         throw invalid_argument("'fans' array sould exist in config.");
     }
 }
@@ -84,6 +88,7 @@ void JsonConfigReader::returnJsonConfig(FanControlParam* fanControlParam, Softwa
     softwareParam->oneSenseReadPc = this->oneSenseReadPc;
 
     if (this->name.empty()) {
+		errorLog("There are no sensor names set!");
         throw std::invalid_argument("There are no sensor names set!");
     }
     for (const auto& nameOne : this->name) {
@@ -92,8 +97,9 @@ void JsonConfigReader::returnJsonConfig(FanControlParam* fanControlParam, Softwa
             if (nameOne == nameTwo) {
                 ++same;
             }
-        }
+        }   
         if (same > 1) {
+            errorLog("Duplicate " + nameOne + " sensor name found! Names of the sensors should be unique.");
             cerr << "Duplicate " << nameOne << " sensor name found!" << endl;
             throw std::invalid_argument("Duplicate sensor name found: " + nameOne 
                 + " Names of the sensors should be unique.");
@@ -116,6 +122,7 @@ void JsonConfigReader::returnJsonConfig(FanControlParam* fanControlParam, Softwa
     fanControlParam->proportionalFactor = this->proportionalFactor;
     for (const auto& hyst : this->hysteresis) {
         if (hyst < 0 && hyst > 0.3) {
+			errorLog("Hysteresis can be set between value 0 - 0.3");
             throw std::invalid_argument("Hysteresis can be set between value 0 - 0.3");
         }
     }
@@ -123,41 +130,66 @@ void JsonConfigReader::returnJsonConfig(FanControlParam* fanControlParam, Softwa
 }
 
 void JsonConfigReader::printParsedJsonInStdout(FanControlParam* fcp, SoftwareParam* sp) {
+	string area = LOG_AREA_JSON;
 
     cout << endl << "-------- Found settings: --------" << endl;
+    addLoggingAreaMessage(area, "-------- Found settings: --------");
     cout << "Refresh interval: " << sp->refreshInterval << endl;
+	addLoggingAreaMessage(area, "Refresh interval: " + to_string(sp->refreshInterval));
     cout << "One Sensor Read Per Cycle optimization: " << (sp->refreshInterval ? "ON" : "OFF");
+	addLoggingAreaMessage(area, "One Sensor Read Per Cycle optimization: " + string((sp->refreshInterval ? "ON" : "OFF")));
     cout << endl << "Sensors:";
+	addLoggingAreaMessage(area, "Sensors:");
     for (int i = 0; i < fcp->sensorNames.size(); i++) {
         cout << endl << "\tSensor: " << fcp->sensorNames[i] << endl;
+		addLoggingAreaMessage(area, "\tSensor: " + fcp->sensorNames[i]);
         cout << "\tSensor hardware name: " << fcp->sensorNamesDevice[i] << endl;
+		addLoggingAreaMessage(area, "\tSensor hardware name: " + fcp->sensorNamesDevice[i]);
         cout << "\tDevice index: " << fcp->deviceIndexes[i] << endl;
+		addLoggingAreaMessage(area, "\tDevice index: " + to_string(fcp->deviceIndexes[i]));
         cout << "\tTemp / Rpm graph:" << endl;
+		addLoggingAreaMessage(area, "\tTemp / Rpm graph:");
         vector<pair<int, int>> vals = fcp->tempRpmGraphs[i];
         for (const auto &pair : vals) {
+			addLoggingAreaMessage(area, "\t\ttemp: " + to_string(pair.first) + " pwm: " + to_string(pair.second));
             cout << "\t\ttemp: " << pair.first << " pwm: " << pair.second << endl;
         }
     }
     cout << endl << "Fans:";
+	addLoggingAreaMessage(area, "Fans:");
     for (int i = 0; i < fcp->fanControlIndexs.size(); i++) {
         cout << endl << "Fan" << i << ":" << endl;
+		addLoggingAreaMessage(area, "Fan" + to_string(i) + ":");
         cout << "\tFan control path: " << fcp->fanControlIndexs[i] << endl;
+		addLoggingAreaMessage(area, "\tFan control path: " + to_string(fcp->fanControlIndexs[i]));
         cout << "\tFan rpm path: " << fcp->fanRpmIndexs[i] << endl;
+		addLoggingAreaMessage(area, "\tFan rpm path: " + to_string(fcp->fanRpmIndexs[i]));
         cout << "\tFan uses sensors: ";
+		addLoggingAreaMessage(area, "\tFan uses sensors: ");
         vector<string> sensorss = fcp->sensors[i];
         for(const string &sensor : sensorss) {
+			addLoggingAreaMessage(area, "\t\t" + sensor);
             cout << sensor << ", ";
         }
         cout << endl;
         cout << "\tSensor function: " << fcp->sensorFunctions[i] << endl;
+		addLoggingAreaMessage(area, "\tSensor function: " + fcp->sensorFunctions[i]);
         cout << "\tAveraging over: " << fcp->avgTimes[i] << " times" << endl;
+		addLoggingAreaMessage(area, "\tAveraging over: " + to_string(fcp->avgTimes[i]) + " times");
         cout << "\tMin PWM: " << fcp->minPwms[i] << endl;
+		addLoggingAreaMessage(area, "\tMin PWM: " + to_string(fcp->minPwms[i]));
         cout << "\tStart PWM: " << fcp->startPwms[i] << endl;
+		addLoggingAreaMessage(area, "\tStart PWM: " + to_string(fcp->startPwms[i]));
         cout << "\tMax PWM: " << fcp->maxPwms[i] << endl;
+		addLoggingAreaMessage(area, "\tMax PWM: " + to_string(fcp->maxPwms[i]));
         cout << "\tOverride max value: " << ((fcp->overrideMax[i] == true) ? "ON" : "OFF") << endl;
+		addLoggingAreaMessage(area, "\tOverride max value: " + string((fcp->overrideMax[i] == true) ? "ON" : "OFF"));
         cout << "\tProportional fan control state (proportionalFactor>0 - ON; proportionalFactor<0 - OFF): " << ((fcp->proportionalFactor[i] > 0) ? "ON" : "OFF") << endl;
+		addLoggingAreaMessage(area, "\tProportional fan control state (proportionalFactor>0 - ON; proportionalFactor<0 - OFF): " + string((fcp->proportionalFactor[i] > 0) ? "ON" : "OFF"));
         cout << "\tProportional factor value: " << ((fcp->proportionalFactor[i] == 0) ? "OFF" :  to_string(fcp->proportionalFactor[i])) << endl;
+		addLoggingAreaMessage(area, "\tProportional factor value: " + ((fcp->proportionalFactor[i] == 0) ? "OFF" : to_string(fcp->proportionalFactor[i])));
         cout << "\tHysteresis percentage: " << fcp->hysteresis[i]*100 << "%" << endl;
+		addLoggingAreaMessage(area, "\tHysteresis percentage: " + to_string(fcp->hysteresis[i] * 100) + "%");
     }
     cout << endl << endl;
 

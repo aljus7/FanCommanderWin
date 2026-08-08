@@ -1,0 +1,92 @@
+{
+  "settings": {
+    "refreshInterval": 500,
+    "oneSensorReadPerCycle": true
+  },
+
+  "tempSensors": [
+    {
+      "sensor": "CPU 1",
+      "sensorName": "Core Average",
+      "deviceIndex": 0,
+      "graph": [
+        {
+          "temp": 48,
+          "pwm": 88
+        },
+        {
+          "temp": 50,
+          "pwm": 92
+        },
+        {
+          "temp": 56,
+          "pwm": 110
+        },
+        {
+          "temp": 60,
+          "pwm": 130
+        },
+        {
+          "temp": 70,
+          "pwm": 255
+        }
+      ]
+    },
+    {
+      "sensor": "GPU 1",
+      "sensorName": "GPU Core",
+      "deviceIndex": 0,
+      "graph": [
+        {
+          "temp": 48,
+          "pwm": 90
+        },
+        {
+          "temp": 50,
+          "pwm": 92
+        },
+        {
+          "temp": 56,
+          "pwm": 125
+        },
+        {
+          "temp": 60,
+          "pwm": 180
+        },
+        {
+          "temp": 70,
+          "pwm": 255
+        }
+      ]
+    }
+  ],
+
+  "fans": [
+    {
+      "fanControlIndex": 3,
+      "fanRpmIndex": 3,
+      "sensors": [ "GPU 1", "CPU 1" ],
+      "sensorFunction": "max",
+      "averageSampleSize": 20,
+      "minPwm": 60,
+      "startPwm": 70,
+      "maxPwm": 255,
+      "overrideMax": true,
+      "proportionalFactor": 0.02,
+      "hysteresis": 0.08
+    },
+    {
+      "fanControlIndex": 0,
+      "fanRpmIndex": 0,
+      "sensors": [ "GPU 1", "CPU 1" ],
+      "sensorFunction": "max",
+      "averageSampleSize": 10,
+      "minPwm": 60,
+      "startPwm": 70,
+      "maxPwm": 255,
+      "overrideMax": true,
+      "proportionalFactor": 0.02,
+      "hysteresis": 0.08
+    }
+  ]
+}

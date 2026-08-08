@@ -11,20 +11,44 @@
 #include "LHMBridge/LHMBridge.h"
 #include <string>
 #include <cctype>
+#include "eventLogger.h"
+
+#define LOG_AREA_INIT "Initialization"
+
 using namespace std;
-//const string jsonConfigLocation = "config.json";
-const string jsonConfigLocation = "config.json";
+const string jsonConfigLocation = "C:\\ProgramData\\fanCommander\\config.json";
 
 atomic<bool> keepRunning(true);
 
-void signalHandler(int signum) {
-    cout << "\nInterrupt signal (" << signum << ") received.\n";
-    keepRunning = false;
+BOOL WINAPI ConsoleHandler(DWORD event) {
+    switch (event) {
+    case CTRL_C_EVENT:
+        std::cout << "\nCtrl+C received\n";
+        keepRunning = false;
+        return TRUE;
+
+    case CTRL_BREAK_EVENT:
+        std::cout << "\nCtrl+Break received\n";
+        keepRunning = false;
+        return TRUE;
+
+    case CTRL_CLOSE_EVENT:
+        std::cout << "\nConsole is closing\n";
+        keepRunning = false;
+        return TRUE;
+
+    case CTRL_LOGOFF_EVENT:
+    case CTRL_SHUTDOWN_EVENT:
+        std::cout << "\nSystem is shutting down/logging off\n";
+        keepRunning = false;
+        return TRUE;
+    }
+    return FALSE;
 }
 
 int main(int argc, char** argv) {
-    //signal(SIGINT, signalHandler);  // Handle Ctrl+C
-    //signal(SIGTERM, signalHandler); // Handle kill/pkill
+    SetConsoleCtrlHandler(ConsoleHandler, TRUE);
+
     bool testFans = false;
     bool continueAfterTest = false;
 
@@ -46,6 +70,7 @@ int main(int argc, char** argv) {
             return 0;
         }
     }
+    logLhmArea();
 
     SoftwareParam *softwareParam = new SoftwareParam();
     FanControlParam *fanControlParam = new FanControlParam();
@@ -91,8 +116,11 @@ int main(int argc, char** argv) {
     if (setFans.size() > 0) {
         balancedRefreshTime = softwareParam->refreshInterval / setFans.size();
     } else {
+		errorLog("No fans found!");
         throw std::runtime_error("No fans found!");
     }
+
+    logLoggingArea(LOG_AREA_INIT);
 
     while (keepRunning) {
         for (auto &fan : setFans) {

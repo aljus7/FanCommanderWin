@@ -1,8 +1,12 @@
+#pragma once
 #ifndef READJSON_H
 #define READJSON_H
 #include <string>
 #include <vector>
 #include <map>
+#include <eventLogger.h>
+
+#define LOG_AREA_JSON "Initialization"
 
 using namespace std;
 

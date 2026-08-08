@@ -10,7 +10,10 @@
 #include <nlohmann/json.hpp>
 #include <cmath>
 #include <deque>
+#include <windows.h>
 #include "LHMBridge/LHMBridge.h"
+
+#define LOG_AREA_FANCONTROL "Initialization"
 
 using namespace std;
 
@@ -25,19 +28,6 @@ using namespace std;
             int& getSetValue();
             void setValue(string& senseName, int val);
             void resetAllSavedValues();
-    };
-
-    class TempSensorServer {
-        private:
-            list<ifstream> tempSensorStreams;
-            unordered_map<string, reference_wrapper<ifstream>> tempSensor;
-            vector<pair<string, string>> tempSensorNamePathCoor;
-        protected:
-
-        public:
-            TempSensorServer(vector<string> tempPaths, vector<string> sensorName);
-            ifstream& getTempSenseIfstream(const string &sensorPath);
-            string getTempSenseName(const string &sensorPath);
     };
 
     class GetTemperature {
@@ -57,8 +47,8 @@ using namespace std;
             int avgTimes;
             deque<int> lastPwmValues;
             int averaging(int pwm);
-            OneSenseReadPerCycle* osrpc;
-            bool osrpcState;
+			OneSenseReadPerCycle* osrpc;
+			bool osrpcState;
         protected:
             void getRpm();
             int getFanRpm();
@@ -72,7 +62,7 @@ using namespace std;
             string const autoGenFileAppend = "_fanSettings";
             int fanPwmIndex;
             int fanRpmIndex;
-            const string stateFilesPath = "fanCommander/";
+            const string stateFilesPath = "C:\\ProgramData\\fanCommander\\data\\";
 
             string rpmIndex;
 
@@ -109,10 +99,9 @@ using namespace std;
 
         public:
             SetFans(vector<string> tempSensorDevice, vector<string> tempSensorNames, vector<int> tempSenseIndex, vector<vector<pair<int, int>>> tempRpmGraph, 
-                string function, int fanPath, int rmpPath, int minPwm, int maxPwm, int startPwm, int avgTimes, bool overrideMax, double propFactor, double hysteresis, 
-                OneSenseReadPerCycle* osrpc, bool osrpcState, string fanNamePathOriginal) :
+                string function, int fanPath, int rmpPath, int minPwm, int maxPwm, int startPwm, int avgTimes, bool overrideMax, double propFactor, double hysteresis, OneSenseReadPerCycle* oneSensePc, bool osrpcState, string fanNamePathOriginal) :
             FanControl(fanPath, fanNamePathOriginal, rmpPath, minPwm, maxPwm, startPwm, overrideMax, propFactor, hysteresis), 
-            GetTemperature(tempSensorDevice, tempSensorNames, tempSenseIndex, tempRpmGraph, function, maxPwm, avgTimes, osrpc, osrpcState) {
+            GetTemperature(tempSensorDevice, tempSensorNames, tempSenseIndex, tempRpmGraph, function, maxPwm, avgTimes, oneSensePc, osrpcState) {
 
             };
             void declareFanRpmFromTempGraph();
