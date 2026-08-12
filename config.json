@@ -72,6 +72,30 @@
       "startPwm": 70,
       "maxPwm": 255,
       "overrideMax": true,
+      "spinUpDelay": [
+        {
+          "fromPwm": 90,
+          "toPwm": 150,
+          "duration": 4000
+        },
+        {
+          "fromPwm": 140,
+          "toPwm": 200,
+          "duration": 3000
+        }
+      ],
+      "spinDownDelay": [
+        {
+          "fromPwm": 120,
+          "toPwm": 170,
+          "duration": 4000
+        },
+        {
+          "fromPwm": 170,
+          "toPwm": 255,
+          "duration": 10000
+        }
+      ],
       "proportionalFactor": 0.02,
       "hysteresis": 0.08
     },
@@ -85,6 +109,28 @@
       "startPwm": 70,
       "maxPwm": 255,
       "overrideMax": true,
+      "spinUpDelay": [
+        {
+          "fromPwm": 90,
+          "toPwm": 150,
+          "duration": 4000
+        },
+        {
+          "fromPwm": 140,
+          "toPwm": 200,
+          "duration": 3000
+        }
+      ],
+      "spinDownDelay": [
+        {
+          "initiation": 200,
+          "duration": 4000
+        },
+        {
+          "initiation": 150,
+          "duration": 1000
+        }
+      ],
       "proportionalFactor": 0.02,
       "hysteresis": 0.08
     }

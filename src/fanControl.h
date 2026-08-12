@@ -85,8 +85,20 @@ using namespace std;
             bool needsChange = true;
 
             int feedBackRpm;
+
+			int spinUpDelayCountdown = 0;
+			bool spinUpDelaysState = false;
+			map<int, int> spinUpDelays;
+			int spinUpDelayLastPwm = 0;
+            int spinUpDelayLastDelay = 0;
+            
+			int spinDownDelayCountdown = 0;
+			bool spinDownDelaysState = false;
+			map<int, int> spinDownDelays;
+			int spinDownDelayLastPwm = 0;
+			int spinDownDelayLastDelay = 0;
         public: 
-            FanControl(int fanPath, string fanNamePathOriginal, int rpmPath, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis);
+            FanControl(int fanPath, string fanNamePathOriginal, int rpmPath, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis, map<int, int> spinUpDelays, map<int, int> spinDownDelays);
             void setFanSpeed(int pwm);
             void getFeedbackRpm();
             ~FanControl();
@@ -99,8 +111,8 @@ using namespace std;
 
         public:
             SetFans(vector<string> tempSensorDevice, vector<string> tempSensorNames, vector<int> tempSenseIndex, vector<vector<pair<int, int>>> tempRpmGraph, 
-                string function, int fanPath, int rmpPath, int minPwm, int maxPwm, int startPwm, int avgTimes, bool overrideMax, double propFactor, double hysteresis, OneSenseReadPerCycle* oneSensePc, bool osrpcState, string fanNamePathOriginal) :
-            FanControl(fanPath, fanNamePathOriginal, rmpPath, minPwm, maxPwm, startPwm, overrideMax, propFactor, hysteresis), 
+                string function, int fanPath, int rmpPath, int minPwm, int maxPwm, int startPwm, int avgTimes, bool overrideMax, double propFactor, double hysteresis, OneSenseReadPerCycle* oneSensePc, bool osrpcState, string fanNamePathOriginal, map<int, int> spinUpDelays, map<int, int> spinDownDelays) :
+            FanControl(fanPath, fanNamePathOriginal, rmpPath, minPwm, maxPwm, startPwm, overrideMax, propFactor, hysteresis, spinUpDelays, spinDownDelays), 
             GetTemperature(tempSensorDevice, tempSensorNames, tempSenseIndex, tempRpmGraph, function, maxPwm, avgTimes, oneSensePc, osrpcState) {
 
             };

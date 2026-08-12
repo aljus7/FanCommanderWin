@@ -76,6 +76,28 @@ void JsonConfigReader::readJsonConfig() {
             this->overrideMax.push_back(fan["overrideMax"].get<bool>());
             this->proportionalFactor.push_back(fan["proportionalFactor"].get<double>());
             this->hysteresis.push_back(fan["hysteresis"].get<double>());
+            
+            vector<tuple<int, int, int>> spinUpDelays;
+            if (fan.contains("spinUpDelay") && fan["spinUpDelay"].is_array()) {
+                for (const auto &delay : fan["spinUpDelay"]) {
+                    spinUpDelays.push_back(make_tuple(delay["fromPwm"].get<int>(), delay["toPwm"].get<int>(), delay["duration"].get<int>()));
+                }
+            } else {
+				spinUpDelays = vector<tuple<int, int, int>>(); // Empty vector if spinUpDelay is not present
+            }
+            this->spinUpDelays.push_back(spinUpDelays);
+
+            vector<tuple<int, int, int>> spinDownDelays;
+            if (fan.contains("spinDownDelay") && fan["spinDownDelay"].is_array()) {
+                for (const auto& delay : fan["spinDownDelay"]) {
+                    spinDownDelays.push_back(make_tuple(delay["fromPwm"].get<int>(), delay["toPwm"].get<int>(), delay["duration"].get<int>()));
+                }
+            }
+            else {
+                spinDownDelays = vector<tuple<int, int, int>>(); // Empty vector if spinDownDelay is not present
+            }
+            this->spinDownDelays.push_back(spinDownDelays);
+
         }
     } else {
         errorLog("'fans' array sould exist in config.");
@@ -127,6 +149,66 @@ void JsonConfigReader::returnJsonConfig(FanControlParam* fanControlParam, Softwa
         }
     }
     fanControlParam->hysteresis = this->hysteresis;
+
+    for (auto& spinUpDelaysPerFan : this->spinUpDelays) {
+        map<int, int> spinUpDelaysMap;
+        if (!spinUpDelaysPerFan.empty()) {
+            for (int i = 0; i <= 255; i++) {
+                bool isInRange = false;
+                int valueToSet = 0;
+                for (const auto& delay : spinUpDelaysPerFan) {
+                    if (i >= get<0>(delay) && i <= get<1>(delay)) {
+                        isInRange = true;
+                        valueToSet = get<2>(delay);
+                        valueToSet = (valueToSet < 0) ? 0 : valueToSet;
+                        valueToSet = valueToSet / this->refresh_interval;
+                        valueToSet = (valueToSet < 1) ? 1 : valueToSet;
+                        break;
+                    }
+                }
+                if (isInRange) {
+                    spinUpDelaysMap[i] = valueToSet;
+                }
+                else {
+                    spinUpDelaysMap[i] = 0;
+                }
+            }
+        }
+        else {
+            spinUpDelaysMap = map<int, int>();
+        }
+        fanControlParam->spinUpDelays.push_back(spinUpDelaysMap);
+    }
+
+    for (auto& spinDownDelaysPerFan : this->spinDownDelays) {
+        map<int, int> spinDownDelaysMap;
+        if (!spinDownDelaysPerFan.empty()) {
+            for (int i = 255; i >= 0; i--) {
+                bool isInRange = false;
+                int valueToSet = 0;
+                for (const auto& delay : spinDownDelaysPerFan) {
+                    if (i >= get<0>(delay) && i <= get<1>(delay)) {
+                        isInRange = true;
+                        valueToSet = get<2>(delay);
+                        valueToSet = (valueToSet < 0) ? 0 : valueToSet;
+                        valueToSet = valueToSet / this->refresh_interval;
+                        valueToSet = (valueToSet < 1) ? 1 : valueToSet;
+                        break;
+                    }
+                }
+                if (isInRange) {
+                    spinDownDelaysMap[i] = valueToSet;
+                }
+                else {
+                    spinDownDelaysMap[i] = 0;
+                }
+            }
+        }
+        else {
+            spinDownDelaysMap = map<int, int>();
+        }
+        fanControlParam->spinDownDelays.push_back(spinDownDelaysMap);
+    }
 }
 
 void JsonConfigReader::printParsedJsonInStdout(FanControlParam* fcp, SoftwareParam* sp) {
@@ -190,6 +272,26 @@ void JsonConfigReader::printParsedJsonInStdout(FanControlParam* fcp, SoftwarePar
 		addLoggingAreaMessage(area, "\tProportional factor value: " + ((fcp->proportionalFactor[i] == 0) ? "OFF" : to_string(fcp->proportionalFactor[i])));
         cout << "\tHysteresis percentage: " << fcp->hysteresis[i]*100 << "%" << endl;
 		addLoggingAreaMessage(area, "\tHysteresis percentage: " + to_string(fcp->hysteresis[i] * 100) + "%");
+		cout << "\tSpin up delays: " << endl;
+		addLoggingAreaMessage(area, "\tSpin delays: ");
+		map<int, int> spinUpDelaysMap = fcp->spinUpDelays[i];
+        if (spinUpDelaysMap.empty()) {
+			cout << "\t\tNo spin up delays defined." << endl;
+            addLoggingAreaMessage(area, "\t\tNo spin up delays defined.");
+        }
+        else {
+            cout << "\t\tSpin up delays defined." << endl;
+            addLoggingAreaMessage(area, "\t\tSpin up delays defined.");
+        }
+        map<int, int> spinDownDelaysMap = fcp->spinDownDelays[i];
+        if (spinDownDelaysMap.empty()) {
+            cout << "\t\tNo spin down delays defined." << endl;
+            addLoggingAreaMessage(area, "\t\tNo spin down delays defined.");
+        }
+        else {
+            cout << "\t\tSpin down delays defined." << endl;
+            addLoggingAreaMessage(area, "\t\tSpin down delays defined.");
+        }
     }
     cout << endl << endl;
 

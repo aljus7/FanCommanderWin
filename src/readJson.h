@@ -5,6 +5,8 @@
 #include <vector>
 #include <map>
 #include <eventLogger.h>
+#include <tuple>
+#include <map>
 
 #define LOG_AREA_JSON "Initialization"
 
@@ -33,6 +35,8 @@ struct FanControlParam {
     vector<bool> overrideMax;
     vector<double> proportionalFactor;
     vector<double> hysteresis;
+    vector<map<int, int>> spinUpDelays;
+    vector<map<int, int>> spinDownDelays;
 };
 
 class JsonConfigReader {
@@ -58,6 +62,9 @@ class JsonConfigReader {
         vector<bool> overrideMax;
         vector<double> proportionalFactor;
         vector<double> hysteresis;
+
+        vector<vector<tuple<int, int, int>>> spinUpDelays;
+        vector<vector<tuple<int, int, int>>> spinDownDelays;
     public:
         JsonConfigReader(string configPath);
         void readJsonConfig();

@@ -212,7 +212,7 @@ int GetTemperature::getFanRpm() {
     }
 }
 
-FanControl::FanControl(int fanIndex, string fanNamePathUnique, int rpmIndex, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis) {
+FanControl::FanControl(int fanIndex, string fanNamePathUnique, int rpmIndex, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis, map<int, int> spinUpDelays, map<int, int> spinDownDelays) {
 
     if (fanIndex < 0 && rpmIndex < 0) {
         errorLog("Fan and rpm index should both be positive integers");
@@ -249,6 +249,12 @@ FanControl::FanControl(int fanIndex, string fanNamePathUnique, int rpmIndex, int
     }
 
     this->propFactor = propFactor;
+
+    this->spinUpDelays = spinUpDelays;
+	this->spinUpDelaysState = !spinUpDelays.empty();
+
+    this->spinDownDelays = spinDownDelays;
+	this->spinDownDelaysState = !spinDownDelays.empty();
 
     filesystem::create_directories(this->stateFilesPath);
 
@@ -468,6 +474,11 @@ void FanControl::setFanSpeed(int pwm) {
     getFeedbackRpm();
     int &prevPwm = this->prevSetPwm;
     bool &needChange = this->needsChange;
+	int &spinUpDelayLastPwm = this->spinUpDelayLastPwm;
+	int &spinUpDelayLastDelay = this->spinUpDelayLastDelay;
+
+	int &spinDownDelayLastPwm = this->spinDownDelayLastPwm;
+	int &spinDownDelayLastDelay = this->spinDownDelayLastDelay;
 
     if (pwm <= 255 && pwm >= 0) {
         if (pwm >= this->minPwmGood && this->feedBackRpm == 0) {
@@ -480,6 +491,48 @@ void FanControl::setFanSpeed(int pwm) {
             }
         }
 
+        if (this->spinUpDelaysState) {
+            auto it = this->spinUpDelays.find(pwm);
+            if (it != this->spinUpDelays.end() && it->second > 0) {
+                if (spinUpDelayLastDelay != it->second) {
+                    spinUpDelayLastDelay = 0;
+                }
+                if (this->spinUpDelayCountdown <= 0 && pwm > prevPwm) {
+                    this->spinUpDelayCountdown = it->second;
+					spinUpDelayLastDelay = it->second;
+					spinUpDelayLastPwm = pwm;
+                }
+			} else {
+				this->spinUpDelayCountdown = 0;
+			}
+
+			if (this->spinUpDelayCountdown > 0 && pwm >= spinUpDelayLastPwm) {
+				this->spinUpDelayCountdown--;
+                pwm = spinUpDelayLastPwm;
+			}
+		}
+
+		if (this->spinDownDelaysState) {
+			auto it = this->spinDownDelays.find(pwm);
+			if (it != this->spinDownDelays.end() && it->second > 0) {
+				if (spinDownDelayLastDelay != it->second) {
+					spinDownDelayLastDelay = 0;
+				}
+				if (this->spinDownDelayCountdown <= 0 && pwm < prevPwm) {
+					this->spinDownDelayCountdown = it->second;
+					spinDownDelayLastDelay = it->second;
+					spinDownDelayLastPwm = pwm;
+				}
+			} else {
+				this->spinDownDelayCountdown = 0;
+			}
+
+			if (this->spinDownDelayCountdown > 0 && pwm <= spinDownDelayLastPwm) {
+				this->spinDownDelayCountdown--;
+                pwm = spinDownDelayLastPwm;
+			}
+		}
+
         if (this->hysteresisGood > 0) {
             if (abs(prevPwm-pwm) < this->hysteresisGood) {
                 pwm = prevPwm;
@@ -489,7 +542,11 @@ void FanControl::setFanSpeed(int pwm) {
             } else {
                 needChange = true;
             }
-            prevPwm = pwm;
+        }
+
+        // here uis prev pwm save for next cycle
+        if (this->hysteresisGood > 0 || this->spinUpDelaysState) {
+			prevPwm = pwm;
         }
 
         if (this->propFactor > 0 && pwm > this->minPwmGood) {
