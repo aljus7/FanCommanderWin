@@ -29,25 +29,32 @@ void JsonConfigReader::readJsonConfig() {
         throw std::invalid_argument("Config json is invalid: \n" + std::string(e.what()));
     }
     
-    if(conf.contains("settings")) {
-        if (conf["settings"].contains("refreshInterval"))
-            this -> refresh_interval = conf["settings"]["refreshInterval"].get<int>();
-        else
-            this -> refresh_interval = 2;
-        if (conf["settings"].contains("oneSensorReadPerCycle"))
-            this->oneSenseReadPc = conf["settings"]["oneSensorReadPerCycle"].get<bool>();
-        else
-            this->oneSenseReadPc = false;
-    } else {
-        errorLog("'Settings' object in config should exist.");
-        throw invalid_argument("'Settings' object in config should exist.");
-    }
+    if (conf.contains("settings") && conf["settings"].contains("refreshInterval"))
+        this -> refresh_interval = conf["settings"]["refreshInterval"].get<int>();
+    else
+        this -> refresh_interval = 500;
+    if (conf.contains("settings") && conf["settings"].contains("oneSensorReadPerCycle"))
+        this->oneSenseReadPc = conf["settings"]["oneSensorReadPerCycle"].get<bool>();
+    else
+        this->oneSenseReadPc = false;
 
     if (conf.contains("tempSensors") && conf["tempSensors"].is_array()) {
         for (const auto &sensor : conf["tempSensors"]) {
+            if (!(sensor.contains("sensor") && sensor.contains("sensorName"))) {
+                errorLog("Invalid sensor data in config. (Missing sensor or sensorName)");
+                throw invalid_argument("Invalid sensor data in config. (Missing sensor or sensorName)");
+            }
             this->name.push_back(sensor["sensor"].get<string>());
             this->sensorName.push_back(sensor["sensorName"].get<string>());
-            this->deviceIndex.push_back(sensor["deviceIndex"].get<int>());
+			if (!(sensor.contains("deviceIndex"))) {
+                this->deviceIndex.push_back(0);
+            } else {
+                this->deviceIndex.push_back(sensor["deviceIndex"].get<int>());
+            }
+			if (!(sensor.contains("graph") && sensor["graph"].is_array())) {
+				errorLog("Invalid sensor data in config. (Missing graph array)");
+				throw invalid_argument("Invalid sensor data in config. (Missing graph array)");
+			}
             vector<pair<int, int>> temps;
             for (const auto &graph : sensor["graph"]) {
                 temps.push_back(make_pair(graph["temp"].get<int>(), graph["pwm"].get<int>()));
@@ -61,21 +68,61 @@ void JsonConfigReader::readJsonConfig() {
 
     if (conf.contains("fans") && conf["fans"].is_array()) {
         for (const auto& fan : conf["fans"]) {
+            if (!(fan.contains("fanControlIndex") && fan.contains("fanRpmIndex") && fan.contains("sensors"))) {
+                errorLog("Invalid fan data in config. (Missing required fields: fanControlIndex, fanRpmIndex, or sensors array)");
+                throw invalid_argument("Invalid fan data in config. (Missing required fields: fanControlIndex, fanRpmIndex, or sensors array)");
+            }
             this->fanControlIndex.push_back(fan["fanControlIndex"].get<int>());
             this->fanRpmIndex.push_back(fan["fanRpmIndex"].get<int>());
+            if (!(fan["sensors"].is_array())) {
+                errorLog("sensors linked to fan is not an array");
+                throw invalid_argument("sensors linked to fan is not an array");
+            }
             vector<string> sensors;
             for (const auto &sensor : fan["sensors"]) {
                 sensors.push_back(sensor.get<string>());
             }
             this->sensors.push_back(sensors);
-            this->sensorFunc.push_back(fan["sensorFunction"].get<string>());
-            this->avgTimes.push_back(fan["averageSampleSize"].get<int>());
-            this->minPwm.push_back(fan["minPwm"].get<int>());
-            this->startPwm.push_back(fan["startPwm"].get<int>());
-            this->maxPwm.push_back(fan["maxPwm"].get<int>());
-            this->overrideMax.push_back(fan["overrideMax"].get<bool>());
-            this->proportionalFactor.push_back(fan["proportionalFactor"].get<double>());
-            this->hysteresis.push_back(fan["hysteresis"].get<double>());
+            if (!fan.contains("sensorFunction")) {
+                this->sensorFunc.push_back("max");
+            } else {
+                this->sensorFunc.push_back(fan["sensorFunction"].get<string>());
+            }
+			if (!fan.contains("averageSampleSize")) {
+				this->avgTimes.push_back(0);
+			} else {
+                this->avgTimes.push_back(fan["averageSampleSize"].get<int>());
+            }
+			if (!fan.contains("minPwm")) {
+				this->minPwm.push_back(0);
+            } else {
+                this->minPwm.push_back(fan["minPwm"].get<int>());
+            }
+            if (!fan.contains("startPwm")) {
+                this->startPwm.push_back(0);
+            } else {
+                this->startPwm.push_back(fan["startPwm"].get<int>());
+            }
+			if (!fan.contains("maxPwm")) {
+				this->maxPwm.push_back(255);
+            } else {
+                this->maxPwm.push_back(fan["maxPwm"].get<int>());
+            }
+			if (!fan.contains("overrideMax")) {
+				this->overrideMax.push_back(false);
+            } else {
+                this->overrideMax.push_back(fan["overrideMax"].get<bool>());
+            }
+			if (!fan.contains("proportionalFactor")) {
+				this->proportionalFactor.push_back(0.0);
+            } else {
+                this->proportionalFactor.push_back(fan["proportionalFactor"].get<double>());
+            }
+			if (!fan.contains("hysteresis")) {
+				this->hysteresis.push_back(0.0);
+            } else {
+                this->hysteresis.push_back(fan["hysteresis"].get<double>());
+            }
             
             vector<tuple<int, int, int>> spinUpDelays;
             if (fan.contains("spinUpDelay") && fan["spinUpDelay"].is_array()) {
