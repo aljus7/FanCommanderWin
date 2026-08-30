@@ -120,9 +120,11 @@ int GetTemperature::averaging(int pwm) {
     }
 }
 
+// what i really meant is get Pwm, haha
 void GetTemperature::getRpm() {
     vector<int> temps(this->tempSensorDevice.size());
     string tempStr;
+	bool sensorInvalidRead = false;
 
     if (this->osrpcState) {
         for(int i = 0; i < this->tempSensorDevice.size(); i++) {
@@ -137,7 +139,7 @@ void GetTemperature::getRpm() {
     } else {
         for(int i = 0; i < this->tempSensorDevice.size(); i++) {
             temps[i] = GetDeviceTemp(this->tempSensorDeviceType[i], this->tempSensorNamesVarchar[i].c_str(), this->tempSensorIndexes[i]);
-    }
+        }
     }
 
 
@@ -150,6 +152,12 @@ void GetTemperature::getRpm() {
         const int temp = temps[j];
         const auto& currGraph = tempRpmGraph[j];
         int& rpm = this->rpms[j];
+
+        if (temp == -100) {
+            sensorInvalidRead = true;
+            rpm = 255;
+            continue;
+        }
 
         for (size_t i = 0; i < currGraph.size(); ++i) {
             if (temp <= currGraph[i].first) {
@@ -167,6 +175,11 @@ void GetTemperature::getRpm() {
         if (temp > currGraph.back().first) {
             rpm = currGraph.back().second;
         }
+    }
+
+    if (sensorInvalidRead) {
+        errorLog("One or more temperature sensors returned invalid values. (this can heppen while driver updates are in progress), waiting as not to spam log...");
+		this_thread.sleep_for(chrono::milliseconds(5000));
     }
 
 }

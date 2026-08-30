@@ -59,8 +59,8 @@ public:
     }
 };
 
-// Helper: build superIO cache
-void InitializeSuperIOCache()
+// Helper: build superIO fan cache
+void InitializeSuperIOFanCache()
 {
     if (LHMHost::controlsInitialized) return;
 
@@ -119,7 +119,7 @@ void InitializeSuperIOCache()
 
 extern "C" __declspec(dllexport) bool SetFanPwm(int fanIndex, unsigned char pwmValue)
 {
-    InitializeSuperIOCache();
+    InitializeSuperIOFanCache();
 
     auto controls = LHMHost::cachedControls;
     if (controls != nullptr && fanIndex >= 0 && fanIndex < controls->Count && controls[fanIndex] != nullptr)
@@ -133,7 +133,6 @@ extern "C" __declspec(dllexport) bool SetFanPwm(int fanIndex, unsigned char pwmV
             if (maxV <= minV) { minV = 0.0f; maxV = 100.0f; } // guard
             float target = minV + ((float)pwmValue / 255.0f) * (maxV - minV);
 
-            // optional: clamp
             if (target < minV) target = minV;
             if (target > maxV) target = maxV;
 
@@ -152,7 +151,7 @@ extern "C" __declspec(dllexport) bool SetFanPwm(int fanIndex, unsigned char pwmV
 
     // reinit and retry (post-sleep)
     LHMHost::controlsInitialized = false;
-    InitializeSuperIOCache();
+    InitializeSuperIOFanCache();
 
     controls = LHMHost::cachedControls;
     if (controls != nullptr && fanIndex >= 0 && fanIndex < controls->Count && controls[fanIndex] != nullptr)
@@ -180,7 +179,7 @@ extern "C" __declspec(dllexport) bool SetFanPwm(int fanIndex, unsigned char pwmV
 
 extern "C" __declspec(dllexport) float ReadFanRpm(int fanIndex)
 {
-    InitializeSuperIOCache();
+    InitializeSuperIOFanCache();
 
     auto fans = LHMHost::cachedFanSensors;
     if (fans != nullptr && fanIndex >= 0 && fanIndex < fans->Count && fans[fanIndex] != nullptr)
@@ -193,7 +192,7 @@ extern "C" __declspec(dllexport) float ReadFanRpm(int fanIndex)
 
     // reinit once in case of stale caches after sleep
     LHMHost::controlsInitialized = false;
-    InitializeSuperIOCache();
+    InitializeSuperIOFanCache();
 
     fans = LHMHost::cachedFanSensors;
     if (fans != nullptr && fanIndex >= 0 && fanIndex < fans->Count && fans[fanIndex] != nullptr)
@@ -291,16 +290,29 @@ extern "C" __declspec(dllexport) int __stdcall GetDeviceTemp(DeviceType deviceTy
     IHardware^ hw;
     if (LHMHost::tempHardware->TryGetValue(key, hw))
     {
-        hw->Update();
+        try { hw->Update(); } catch (...) {}
     }
 
     ISensor^ sensor;
     if (LHMHost::tempSensors->TryGetValue(key, sensor))
     {
-        return sensor->Value.HasValue ? (int)sensor->Value.Value : -1;
+        return sensor->Value.HasValue ? (int)sensor->Value.Value : -100;
     }
 
-    return -1;
+    //retry
+	LHMHost::sensorsInitialized = false;
+    initializeTempSensors();
+
+    if (LHMHost::tempHardware->TryGetValue(key, hw)) {
+        try { hw->Update(); }
+        catch (...) {}
+    }
+
+    if (LHMHost::tempSensors->TryGetValue(key, sensor)) {
+        return sensor->Value.HasValue ? (int)sensor->Value.Value : -100;
+    }
+
+    return -100;
 }
 
 /*extern "C" __declspec(dllexport) int GetDeviceTemp(DeviceType deviceType, const wchar_t* sensorName, int deviceOrder)
@@ -401,7 +413,7 @@ extern "C" __declspec(dllexport) void ListAllDevices()
     cout << "---------------- FANS: ----------------" << endl;
     addLoggingAreaMessage(LOG_AREA_LHM, "---------------- FANS: ----------------");
 
-    InitializeSuperIOCache();
+    InitializeSuperIOFanCache();
     auto controls = LHMHost::cachedControls;
 
     cout << "Found " << controls->Count << " fan/s" << endl;
@@ -434,7 +446,7 @@ extern "C" __declspec(dllexport) void ListAllDevices()
 //For testing purposes only
 extern "C" __declspec(dllexport) void TestAllFansSequence()
 {
-    InitializeSuperIOCache();
+    InitializeSuperIOFanCache();
     auto controls = LHMHost::cachedControls;
     if (controls == nullptr) { 
         addLoggingAreaMessage(LOG_AREA_LHM, "pwmControls not initialized");
