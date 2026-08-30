@@ -177,9 +177,16 @@ void GetTemperature::getRpm() {
         }
     }
 
-    if (sensorInvalidRead) {
-        errorLog("One or more temperature sensors returned invalid values. (this can heppen while driver updates are in progress), waiting as not to spam log...");
-		this_thread.sleep_for(chrono::milliseconds(5000));
+    if (sensorInvalidRead && !this->sensorReadErrorMessageShown) {
+		string sensorList;
+		for (const auto& name : this->uniqueSensorNames) {
+            			sensorList += name + ", ";
+		}
+        errorLog("One or more temperature sensors returned invalid values. (this can heppen while driver updates are in progress)\n"
+            + sensorList);
+        this->sensorReadErrorMessageShown = true;
+    } else if (this->sensorReadErrorMessageShown) {
+		this->sensorReadErrorMessageShown = false;
     }
 
 }

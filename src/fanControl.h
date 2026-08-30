@@ -49,6 +49,8 @@ using namespace std;
             int averaging(int pwm);
 			OneSenseReadPerCycle* osrpc;
 			bool osrpcState;
+
+			bool sensorReadErrorMessageShown = false;
         protected:
             void getRpm();
             int getFanRpm();
