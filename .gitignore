@@ -5,3 +5,7 @@ fanCommander
 LibreHardwareMonitor
 output
 .vs
+/*.obj
+/*.dll
+/*.lib
+/*.exp
