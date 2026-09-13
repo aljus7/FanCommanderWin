@@ -6,6 +6,11 @@
 #include <msclr/marshal_cppstd.h>
 #include <thread>
 #include <chrono>
+#include <mutex>
+
+static std::mutex pwmMutex;
+static std::mutex rpmMutex;
+static std::mutex tempMutex;
 
 #using "LibreHardwareMonitorLib.dll"
 
@@ -119,6 +124,8 @@ void InitializeSuperIOFanCache()
 
 extern "C" __declspec(dllexport) bool SetFanPwm(int fanIndex, unsigned char pwmValue)
 {
+    std::lock_guard<std::mutex> lock(pwmMutex);
+    
     InitializeSuperIOFanCache();
 
     auto controls = LHMHost::cachedControls;
@@ -179,6 +186,8 @@ extern "C" __declspec(dllexport) bool SetFanPwm(int fanIndex, unsigned char pwmV
 
 extern "C" __declspec(dllexport) float ReadFanRpm(int fanIndex)
 {
+    std::lock_guard<std::mutex> lock(rpmMutex);
+    
     InitializeSuperIOFanCache();
 
     auto fans = LHMHost::cachedFanSensors;
@@ -277,6 +286,8 @@ void initializeTempSensors() {
 
 extern "C" __declspec(dllexport) int __stdcall GetDeviceTemp(DeviceType deviceType, const wchar_t* sensorName, int deviceOrder)
 {
+    std::lock_guard<std::mutex> lock(tempMutex);
+
     ManagedDeviceType mdt = static_cast<ManagedDeviceType>(deviceType);
     System::String^ managedSensorName = gcnew System::String(sensorName);
 	initializeTempSensors();

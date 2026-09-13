@@ -12,6 +12,8 @@
 #include <eventLogger.h>
 using json = nlohmann::json;
 
+mutex oneReadPerCycleMutex;
+
 DeviceType getDeviceTypeFromString(const std::string& str) {
     if (str == "CPU") return DeviceType::CPU;
     if (str == "GPU") return DeviceType::GPU;
@@ -132,7 +134,7 @@ void GetTemperature::getRpm() {
                 temps[i] = GetDeviceTemp(this->tempSensorDeviceType[i], this->tempSensorNamesVarchar[i].c_str(), this->tempSensorIndexes[i]);
                 osrpc->setValue(this->uniqueSensorNames[i], temps[i]);
             } else {
-                temps[i] = osrpc->getSetValue();
+                temps[i] = osrpc->getSetValue(this->uniqueSensorNames[i]);
                 //cout << "Setting saved value " << temps[i] << endl;
             }
         }
@@ -626,22 +628,30 @@ FanControl::~FanControl() {
 }
 
 bool OneSenseReadPerCycle::isValueSet(string& senseName) {
+    lock_guard<mutex> lk(oneReadPerCycleMutex);
     auto it = savedValues.find(senseName);
     if (it != savedValues.end()) {
-        nextReturnValue = it->second;
         return true;
     }
     return false;
 }
 
-int& OneSenseReadPerCycle::getSetValue() {
-    return this->nextReturnValue;
+int& OneSenseReadPerCycle::getSetValue(string& senseName) {
+    lock_guard<mutex> lk(oneReadPerCycleMutex);
+    auto it = savedValues.find(senseName);
+    if (it != savedValues.end()) {
+        return it->second;
+    }
+    //return 50;
+	throw std::runtime_error("OneReadPerCycle server, Value not set error: " + senseName);
 }
 
 void OneSenseReadPerCycle::setValue(string& senseName, int val) {
+    lock_guard<mutex> lk(oneReadPerCycleMutex);
     this->savedValues[senseName] = val;
 }
 
 void OneSenseReadPerCycle::resetAllSavedValues() {
+    lock_guard<mutex> lk(oneReadPerCycleMutex);
     this->savedValues.clear();
 }

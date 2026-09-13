@@ -11,6 +11,7 @@
 #include <cmath>
 #include <deque>
 #include <windows.h>
+#include <mutex>
 #include "LHMBridge/LHMBridge.h"
 
 #define LOG_AREA_FANCONTROL "Initialization"
@@ -22,10 +23,9 @@ using namespace std;
     class OneSenseReadPerCycle {
         private:
             unordered_map<string, int> savedValues;
-            int nextReturnValue;
         public:
             bool isValueSet(string& senseName);
-            int& getSetValue();
+            int& getSetValue(string& senseName);
             void setValue(string& senseName, int val);
             void resetAllSavedValues();
     };

@@ -19,6 +19,7 @@ CFLAGS = /nologo /MD /W3 /O2 /std:c++17 /D_HAS_STD_BYTE=0 /I"." /I"src"
 CLRFLAGS = /clr
 DLLFLAGS = /LD
 LINKER_FLAGS = /subsystem:windows /ENTRY:mainCRTStartup
+# LINKER_FLAGS = /subsystem:console
 
 ALL: $(LHM_DLL) $(PROG)
 

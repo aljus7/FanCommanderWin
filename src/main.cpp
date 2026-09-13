@@ -11,6 +11,9 @@
 #include "LHMBridge/LHMBridge.h"
 #include <string>
 #include <cctype>
+#include <mutex>
+#include <atomic>
+#include <thread>
 #include "eventLogger.h"
 
 #define LOG_AREA_INIT "Initialization"
@@ -122,18 +125,65 @@ int main(int argc, char** argv) {
 
     logLoggingArea(LOG_AREA_INIT);
 
+    vector<thread> fanThreads;
+
+    mutex turnMutex;
+    condition_variable turnCV;
+    atomic<int> turn = 0;
+
+    for (int i = 0; i < setFans.size(); i++) {
+        auto* fan = setFans[i];
+
+        fanThreads.emplace_back([&, fan, i]() {
+                while (keepRunning) {
+
+                    unique_lock<mutex> lk(turnMutex);
+                    turnCV.wait(lk, [&] { return !keepRunning || turn == i; });
+
+                    if (!keepRunning) break;
+
+                    turn = -1;
+
+                    lk.unlock();
+
+                    //cout << "Thread " << i << " is setting fan speed..." << endl;
+                    fan->declareFanRpmFromTempGraph();
+                    fan->setFanSpeedFromDeclaredRpm();
+
+                }
+            });
+    }
+
     while (keepRunning) {
-        for (auto &fan : setFans) {
-            fan->declareFanRpmFromTempGraph();
-            fan->setFanSpeedFromDeclaredRpm();
-            this_thread::sleep_for(std::chrono::milliseconds(balancedRefreshTime));
-        }
-        if (softwareParam->oneSenseReadPc) {
-            oneRead->resetAllSavedValues();
+
+        for (int j = 0; j < setFans.size(); j++) {
+            if (turn.load() == 0) {
+
+                if (softwareParam->oneSenseReadPc) {
+                    oneRead->resetAllSavedValues();
+                }
+
+                this_thread::sleep_for(chrono::milliseconds(1));
+            }
+
+            this_thread::sleep_for(chrono::milliseconds(balancedRefreshTime));
+
+            {
+                lock_guard<mutex> lk(turnMutex);
+                turn = j % setFans.size();
+            }
+
+            turnCV.notify_all();
         }
     }
 
-    std::cout << "Exiting...\n";
+    cout << "Exiting...\n";
+
+    turn = 0;
+    for (auto& t : fanThreads) {
+        if (t.joinable())
+            t.join();
+    }
 
     // deleting objects
     for (auto* fan : setFans) {
