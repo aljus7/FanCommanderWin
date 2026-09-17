@@ -14,12 +14,20 @@
 #include <mutex>
 #include <atomic>
 #include <thread>
+#include <cmath>
 #include "eventLogger.h"
 
 #define LOG_AREA_INIT "Initialization"
 
 using namespace std;
 const string jsonConfigLocation = "C:\\ProgramData\\fanCommander\\config.json";
+//const string jsonConfigLocation = "config.json";
+
+int* createSoftAccelerationGraph(string, double, double);
+string plotSoftAccelerationGraph(int*);
+void helpText();
+void enableConsole();
+int pressReturnToClose();
 
 atomic<bool> keepRunning(true);
 
@@ -54,23 +62,46 @@ int main(int argc, char** argv) {
 
     bool testFans = false;
     bool continueAfterTest = false;
+	bool accelerationGraphs = false;
+	bool showConsoleOutput = false;
+	bool showHelp = false;
 
     for (int i = 1; i < argc; i++) {
         string a = argv[i];
         if (a == "--testFans" || a == "-tf") {
             testFans = true;
+            showConsoleOutput = true;
         }
         if (a == "--testFansContinue" || a == "-tfc") {
             testFans = true;
             continueAfterTest = true;
         }
+        if (a == "--accelerationGraphs" || a == "-ag") {
+            accelerationGraphs = true;
+            showConsoleOutput = true;
+        }
+        if (a == "--enableConsole" || a == "-ec") {
+            showConsoleOutput = true;
+        }
+        if (a == "--help" || a == "-h") {
+            showConsoleOutput = true;
+			showHelp = true;
+        }
+    }
+
+    if (showConsoleOutput)
+		enableConsole();
+
+    if (showHelp) {
+        helpText();
+        return pressReturnToClose();
     }
 
     ListAllDevices();
     if (testFans) {
         TestAllFansSequence();
         if (!continueAfterTest) {
-            return 0;
+            return pressReturnToClose();
         }
     }
     logLhmArea();
@@ -82,7 +113,34 @@ int main(int argc, char** argv) {
     jsonConfigReader->readJsonConfig();
     jsonConfigReader->returnJsonConfig(fanControlParam, softwareParam);
     jsonConfigReader->printParsedJsonInStdout(fanControlParam, softwareParam);
-    
+
+    vector<int*> softAccelerationGraph;
+    vector<string> softAccelerationGraphPlot;
+
+    for (int i = 0; i < fanControlParam->fanControlIndexs.size(); i++) {
+        if (fanControlParam->softAccelerationTypes[i] != "null" && fanControlParam->softAccelerationK[i] != 0) {
+            softAccelerationGraph.push_back(createSoftAccelerationGraph(fanControlParam->softAccelerationTypes[i], fanControlParam->softAccelerationK[i], fanControlParam->softAccelerationN[i]));
+            if (accelerationGraphs)
+                softAccelerationGraphPlot.push_back(plotSoftAccelerationGraph(softAccelerationGraph[i]));
+        }
+        else {
+			softAccelerationGraph.push_back(nullptr);
+			if (accelerationGraphs)
+				softAccelerationGraphPlot.push_back("No soft acceleration graph defined."); 
+        }
+    }
+
+    if (accelerationGraphs) {
+        for (int i = 0; i < softAccelerationGraphPlot.size(); i++) {
+            cout << endl << "Fan " << i << " soft acceleration graph: " << endl;
+            addLoggingAreaMessage("GRAPH_PLOT", "Fan " + to_string(i) + " soft acceleration graph: ");
+            cout << softAccelerationGraphPlot[i] << endl;
+            addLoggingAreaMessage("GRAPH_PLOT", softAccelerationGraphPlot[i]);
+        }
+        logLoggingArea("GRAPH_PLOT");
+        return pressReturnToClose();
+    }
+
     vector<SetFans*> setFans;
 
     vector<int> fanControl = fanControlParam->fanControlIndexs;
@@ -112,7 +170,7 @@ int main(int argc, char** argv) {
         string uniqueFanCtrlName = to_string(fanControlParam->fanControlIndexs[i]) + "_" + to_string(fanControlParam->fanRpmIndexs[i]);
 
         setFans.push_back(new SetFans(sensorNames, sensorNamesDevices, deviceIndexes, buildTempTempRpmGraphs, fanControlParam->sensorFunctions[i], fanControl[i], fanRpm[i],
-        fanControlParam->minPwms[i], fanControlParam->maxPwms[i], fanControlParam->startPwms[i], fanControlParam->avgTimes[i], fanControlParam->overrideMax[i], fanControlParam->proportionalFactor[i], fanControlParam->hysteresis[i], oneRead, softwareParam->oneSenseReadPc, uniqueFanCtrlName, fanControlParam->spinUpDelays[i], fanControlParam->spinDownDelays[i]));
+        fanControlParam->minPwms[i], fanControlParam->maxPwms[i], fanControlParam->startPwms[i], fanControlParam->avgTimes[i], fanControlParam->overrideMax[i], fanControlParam->proportionalFactor[i], fanControlParam->hysteresis[i], oneRead, softwareParam->oneSenseReadPc, uniqueFanCtrlName, fanControlParam->spinUpDelays[i], fanControlParam->spinDownDelays[i], softAccelerationGraph[i]));
     }
 
     int balancedRefreshTime = 0;
@@ -196,4 +254,119 @@ int main(int argc, char** argv) {
     
     return 0;
 
+}
+
+int* createSoftAccelerationGraph(string type, double k, double n) {
+    int* graph = new int[255]{};
+    if ((type == "EXPONENTIAL" || type == "exponential") && n == 0)
+        n = 1;
+    for (int i = 0; i < 255; i++) {
+        if (type == "LINEAR" || type == "linear") {
+			graph[i] = k * i + n;
+        }
+        else if (type == "EXPONENTIAL" || type == "exponential") {
+            double y = n * (pow(2.71828, k * i) - 1);
+            if (!std::isfinite(y) || y > 255)
+                graph[i] = -1;
+            else {
+				graph[i] = static_cast<int>(round(y));
+            }
+        }
+    }
+    return graph;
+}
+
+string plotSoftAccelerationGraph(int* graph) {
+    const int scale = 7;
+    string plot;
+	bool hasStar = false;
+
+    for (int y = 255; y >= 0; y -= scale) {
+        if (y > 0 && graph[y-1] == -1)
+            continue;
+        for (int bucket = 0; bucket < 255; bucket += scale) {
+            int sum = 0;
+            int count = 0;
+
+            for (int x = bucket; x < min(bucket + scale, 255); x++) {
+                sum += graph[x];
+                count++;
+            }
+
+            int avgY = sum / count;
+
+            if (abs(avgY - y) <= scale / 2) {
+                plot += '*';
+				hasStar = true;
+            }
+            else
+                plot += ' ';
+        }
+        if (hasStar)
+            plot += '\n';
+    }
+
+    return plot;
+}
+
+void enableConsole() {
+    AllocConsole();
+
+    FILE* fp;
+
+    freopen_s(&fp, "CONOUT$", "w", stdout);
+    freopen_s(&fp, "CONOUT$", "w", stderr);
+    freopen_s(&fp, "CONIN$", "r", stdin);
+
+    cout.clear();
+    cerr.clear();
+    cin.clear();
+}
+
+int pressReturnToClose() {
+    std::cout << "Press Enter to close...";
+    std::cin.get();
+    return 0;
+}
+
+void helpText() {
+        cout <<
+            R"(fanCommander - Fan Control Utility
+
+        Usage:
+          fanCommander.exe [options]
+
+        Options:
+          -h,  --help
+              Display this help message.
+
+          -ec, --enableConsole
+              Enable console output when running as a Windows application.
+
+          -tf, --testFans
+              Run a fan test sequence and exit.
+
+          -tfc, --testFansContinue
+              Run a fan test sequence and then continue normal operation.
+
+          -ag, --accelerationGraphs
+              Generate and display configured soft acceleration graphs.
+
+        Examples:
+          fanCommander.exe --testFans
+          fanCommander.exe --testFansContinue
+          fanCommander.exe --accelerationGraphs
+          fanCommander.exe --enableConsole
+          fanCommander.exe --enableConsole --accelerationGraphs
+
+        Notes:
+          Configuration is loaded from:
+              config.json
+
+          When built as a Windows subsystem application,
+          console output is only visible when enabled
+          using --enableConsole or another option that
+          automatically enables console output.
+
+        )";
 }

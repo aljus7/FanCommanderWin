@@ -37,6 +37,9 @@ struct FanControlParam {
     vector<double> hysteresis;
     vector<map<int, int>> spinUpDelays;
     vector<map<int, int>> spinDownDelays;
+    vector<string> softAccelerationTypes;
+    vector<double> softAccelerationK;
+	vector<double> softAccelerationN;
 };
 
 class JsonConfigReader {
@@ -65,6 +68,10 @@ class JsonConfigReader {
 
         vector<vector<tuple<int, int, int>>> spinUpDelays;
         vector<vector<tuple<int, int, int>>> spinDownDelays;
+
+        vector<string> softAccelerationTypes;
+        vector<double> softAccelerationK;
+        vector<double> softAccelerationN;
     public:
         JsonConfigReader(string configPath);
         void readJsonConfig();

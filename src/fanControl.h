@@ -12,11 +12,17 @@
 #include <deque>
 #include <windows.h>
 #include <mutex>
+#include <thread>
 #include "LHMBridge/LHMBridge.h"
 
 #define LOG_AREA_FANCONTROL "Initialization"
 
 using namespace std;
+
+enum accelerationType {
+    LINEAR,
+    EXPONENTIAL
+};
 
     DeviceType getDeviceTypeFromString(const std::string& str);
 
@@ -99,9 +105,21 @@ using namespace std;
 			map<int, int> spinDownDelays;
 			int spinDownDelayLastPwm = 0;
 			int spinDownDelayLastDelay = 0;
+
+			bool softAccState = false;
+			int* softAccGraph;
+            mutex turnMutex;
+            condition_variable turnCV;
+            atomic<int> softFanAccPrevValue = 0;
+            atomic<int> softFanAccCurrValue = 0;
+			atomic<bool> softFanAccThreadRunState = true;
+			atomic<bool> renewSoftFanAccThreadCycle = false;
+			atomic<bool> softFanAccEmidiateSet = false;
+			thread softFanAccThread;
         public: 
-            FanControl(int fanPath, string fanNamePathOriginal, int rpmPath, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis, map<int, int> spinUpDelays, map<int, int> spinDownDelays);
+            FanControl(int fanPath, string fanNamePathOriginal, int rpmPath, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis, map<int, int> spinUpDelays, map<int, int> spinDownDelays, int* accGraph);
             void setFanSpeed(int pwm);
+            void softFanAcceleration(int fanPwmIndex, int targetPwm, bool state, bool emidiate);
             void getFeedbackRpm();
             ~FanControl();
     };
@@ -113,8 +131,8 @@ using namespace std;
 
         public:
             SetFans(vector<string> tempSensorDevice, vector<string> tempSensorNames, vector<int> tempSenseIndex, vector<vector<pair<int, int>>> tempRpmGraph, 
-                string function, int fanPath, int rmpPath, int minPwm, int maxPwm, int startPwm, int avgTimes, bool overrideMax, double propFactor, double hysteresis, OneSenseReadPerCycle* oneSensePc, bool osrpcState, string fanNamePathOriginal, map<int, int> spinUpDelays, map<int, int> spinDownDelays) :
-            FanControl(fanPath, fanNamePathOriginal, rmpPath, minPwm, maxPwm, startPwm, overrideMax, propFactor, hysteresis, spinUpDelays, spinDownDelays), 
+                string function, int fanPath, int rmpPath, int minPwm, int maxPwm, int startPwm, int avgTimes, bool overrideMax, double propFactor, double hysteresis, OneSenseReadPerCycle* oneSensePc, bool osrpcState, string fanNamePathOriginal, map<int, int> spinUpDelays, map<int, int> spinDownDelays, int* accGraph) :
+            FanControl(fanPath, fanNamePathOriginal, rmpPath, minPwm, maxPwm, startPwm, overrideMax, propFactor, hysteresis, spinUpDelays, spinDownDelays, accGraph), 
             GetTemperature(tempSensorDevice, tempSensorNames, tempSenseIndex, tempRpmGraph, function, maxPwm, avgTimes, oneSensePc, osrpcState) {
 
             };

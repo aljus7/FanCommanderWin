@@ -234,7 +234,7 @@ int GetTemperature::getFanRpm() {
     }
 }
 
-FanControl::FanControl(int fanIndex, string fanNamePathUnique, int rpmIndex, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis, map<int, int> spinUpDelays, map<int, int> spinDownDelays) {
+FanControl::FanControl(int fanIndex, string fanNamePathUnique, int rpmIndex, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis, map<int, int> spinUpDelays, map<int, int> spinDownDelays, int* accGraph) {
 
     if (fanIndex < 0 && rpmIndex < 0) {
         errorLog("Fan and rpm index should both be positive integers");
@@ -268,6 +268,81 @@ FanControl::FanControl(int fanIndex, string fanNamePathUnique, int rpmIndex, int
         this->overrideMax = true;
     } else {
         this->overrideMax = false;
+    }
+
+    if (accGraph == nullptr || propFactor > 0) {
+        if (propFactor > 0) {
+            cout << "Note: Soft fan acceleration cant be enabled if proportional factor is more that 0" << endl;
+			addLoggingAreaMessage(LOG_AREA_FANCONTROL, "Note: Soft fan acceleration cant be enabled if proportional factor is more that 0");
+        }
+        this->softAccState = false;
+        this->softAccGraph = nullptr;
+    } else {
+        this->softAccState = true;
+        this->softAccGraph = accGraph;
+        this->softFanAccThread = thread([this, accGraph]() {
+			auto& prevValue = this->softFanAccPrevValue;
+			auto& currValue = this->softFanAccCurrValue;
+			auto& softFanAccEmidiateSet = this->softFanAccEmidiateSet;
+			auto& renewSoftFanAccThreadCycle = this->renewSoftFanAccThreadCycle;
+			auto& softFanAccThreadRunState = this->softFanAccThreadRunState;
+            int trijectory = 0;
+			int currValueWork = 0;
+			int refreshInterval = 10;
+			while (softFanAccThreadRunState) {
+                unique_lock<mutex> lk(turnMutex);
+                turnCV.wait(lk, [&] { return !softFanAccThreadRunState || renewSoftFanAccThreadCycle; });
+				renewSoftFanAccThreadCycle = false;
+				lk.unlock();
+
+                if (!softFanAccThreadRunState)
+                    break;
+
+                if (!softFanAccEmidiateSet && abs(prevValue - currValue) > 20) {
+                    currValueWork = currValue;
+                    trijectory = currValue;
+                    if (currValue > prevValue) {
+                        for (int i = 0; i < 255; i++) {
+							trijectory += accGraph[i];
+                            if (trijectory < 255 && accGraph[i] != -1) {
+								SetFanPwm(this->fanPwmIndex, trijectory);
+                                lk.lock();
+                                turnCV.wait_for(lk, std::chrono::milliseconds(refreshInterval), [&] { return !softFanAccThreadRunState || renewSoftFanAccThreadCycle; });
+                                lk.unlock();
+                                if (currValue <= trijectory || softFanAccEmidiateSet) {
+                                    break;
+                                }
+                            }
+                            else {
+                                break;
+                            }
+                        }
+                    }
+                    else {
+                        for (int i = 0; i < 255; i++) {
+                            trijectory -= accGraph[i];
+                            if (trijectory > 0 && accGraph[i] != -1) {
+                                SetFanPwm(this->fanPwmIndex, trijectory);
+                                lk.lock();
+                                turnCV.wait_for(lk, std::chrono::milliseconds(refreshInterval), [&] { return !softFanAccThreadRunState || renewSoftFanAccThreadCycle; });
+                                lk.unlock();
+                                if (currValue >= trijectory || softFanAccEmidiateSet) {
+                                    break;
+                                }
+                            }
+                            else {
+                                break;
+                            }
+                        }
+                    }
+                }
+                else {
+                    SetFanPwm(this->fanPwmIndex, currValue);
+                }
+
+                prevValue.store(currValue.load());
+			}
+        });
     }
 
     this->propFactor = propFactor;
@@ -492,6 +567,25 @@ void FanControl::getFeedbackRpm() {
     this->feedBackRpm = fanRpm;
 }
 
+void FanControl::softFanAcceleration(int fanPwmIndex, int targetPwm, bool state, bool emidiate) {
+    if (state) {
+        auto& softFanAccEmidiateSet = this->softFanAccEmidiateSet;
+        auto& renewSoftFanAccThreadCycle = this->renewSoftFanAccThreadCycle;
+        auto& currValue = this->softFanAccCurrValue;
+
+        {
+            lock_guard<mutex> lk(this->turnMutex);
+            softFanAccEmidiateSet = emidiate;
+            currValue = targetPwm;
+            renewSoftFanAccThreadCycle = true;
+        }
+		this->turnCV.notify_one();
+    }
+    else {
+        SetFanPwm(this->fanPwmIndex, targetPwm);
+    }
+}
+
 void FanControl::setFanSpeed(int pwm) {
     getFeedbackRpm();
     int &prevPwm = this->prevSetPwm;
@@ -502,12 +596,14 @@ void FanControl::setFanSpeed(int pwm) {
 	int &spinDownDelayLastPwm = this->spinDownDelayLastPwm;
 	int &spinDownDelayLastDelay = this->spinDownDelayLastDelay;
 
+	bool& softAccState = this->softAccState;
+
     if (pwm <= 255 && pwm >= 0) {
         if (pwm >= this->minPwmGood && this->feedBackRpm == 0) {
-            if (255 - this->startPwmGood > 10)  {   
-                SetFanPwm(this->fanPwmIndex, this->startPwmGood + 10);
+            if (255 - this->startPwmGood > 10)  { 
+                softFanAcceleration(this->fanPwmIndex, this->startPwmGood + 10, softAccState, true);
             } else {
-                SetFanPwm(this->fanPwmIndex, this->startPwmGood);
+                softFanAcceleration(this->fanPwmIndex, this->startPwmGood, softAccState, true);
 				errorLog("ATENTION: Critical system failure, fan is likely dead!");
                 cout << "ATENTION: Critical system failure, fan is likely dead!" << endl;
             }
@@ -588,10 +684,10 @@ void FanControl::setFanSpeed(int pwm) {
             }
 
             if (pwm >= this->minPwmGood) {    
-                SetFanPwm(this->fanPwmIndex, pwm);
+                softFanAcceleration(this->fanPwmIndex, pwm, softAccState, false);
 				//cout << "Setting PWM to " << pwm << " for " << this->fanPwmIndex << endl;
             } else {
-                SetFanPwm(this->fanPwmIndex, this->minPwmGood);
+                softFanAcceleration(this->fanPwmIndex, this->minPwmGood, softAccState, true);
             }
                 
         }
@@ -624,6 +720,15 @@ FanControl::~FanControl() {
 
     if (this->fanSettingsAutoGenFile.is_open())
         this->fanSettingsAutoGenFile.close();
+
+    if (this->softAccState) {
+        this->softFanAccThreadRunState = false;
+        this->renewSoftFanAccThreadCycle = true;
+        this->turnCV.notify_one();
+        if (this->softFanAccThread.joinable()) {
+            this->softFanAccThread.join();
+        }
+    }
 
 }
 

@@ -145,6 +145,16 @@ void JsonConfigReader::readJsonConfig() {
             }
             this->spinDownDelays.push_back(spinDownDelays);
 
+            if (fan.contains("softAcceleration") && fan["softAcceleration"].is_object() && (fan["softAcceleration"].contains("type") && fan["softAcceleration"].contains("k") && fan["softAcceleration"].contains("a"))) {
+                this->softAccelerationTypes.push_back(fan["softAcceleration"]["type"].get<string>());
+                this->softAccelerationK.push_back(fan["softAcceleration"]["k"].get<double>());
+                this->softAccelerationN.push_back(fan["softAcceleration"]["a"].get<double>());
+            } else {
+                this->softAccelerationTypes.push_back("null");
+                this->softAccelerationK.push_back(0);
+                this->softAccelerationN.push_back(0);
+            }
+
         }
     } else {
         errorLog("'fans' array sould exist in config.");
@@ -256,6 +266,10 @@ void JsonConfigReader::returnJsonConfig(FanControlParam* fanControlParam, Softwa
         }
         fanControlParam->spinDownDelays.push_back(spinDownDelaysMap);
     }
+
+	fanControlParam->softAccelerationTypes = this->softAccelerationTypes;
+	fanControlParam->softAccelerationK = this->softAccelerationK;
+	fanControlParam->softAccelerationN = this->softAccelerationN;
 }
 
 void JsonConfigReader::printParsedJsonInStdout(FanControlParam* fcp, SoftwareParam* sp) {
@@ -319,7 +333,8 @@ void JsonConfigReader::printParsedJsonInStdout(FanControlParam* fcp, SoftwarePar
 		addLoggingAreaMessage(area, "\tProportional factor value: " + ((fcp->proportionalFactor[i] == 0) ? "OFF" : to_string(fcp->proportionalFactor[i])));
         cout << "\tHysteresis percentage: " << fcp->hysteresis[i]*100 << "%" << endl;
 		addLoggingAreaMessage(area, "\tHysteresis percentage: " + to_string(fcp->hysteresis[i] * 100) + "%");
-		cout << "\tSpin up delays: " << endl;
+		
+        cout << "\tSpin up delays: " << endl;
 		addLoggingAreaMessage(area, "\tSpin delays: ");
 		map<int, int> spinUpDelaysMap = fcp->spinUpDelays[i];
         if (spinUpDelaysMap.empty()) {
@@ -339,6 +354,13 @@ void JsonConfigReader::printParsedJsonInStdout(FanControlParam* fcp, SoftwarePar
             cout << "\t\tSpin down delays defined." << endl;
             addLoggingAreaMessage(area, "\t\tSpin down delays defined.");
         }
+
+		cout << "\tSoft acceleration type: " << fcp->softAccelerationTypes[i] << endl;
+		addLoggingAreaMessage(area, "\tSoft acceleration type: " + fcp->softAccelerationTypes[i]);
+		cout << "\tSoft acceleration k: " << fcp->softAccelerationK[i] << endl;
+		addLoggingAreaMessage(area, "\tSoft acceleration k: " + to_string(fcp->softAccelerationK[i]));
+		cout << "\tSoft acceleration n: " << fcp->softAccelerationN[i] << endl;
+		addLoggingAreaMessage(area, "\tSoft acceleration n: " + to_string(fcp->softAccelerationN[i]));
     }
     cout << endl << endl;
 
