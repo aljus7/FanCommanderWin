@@ -125,16 +125,6 @@
           "duration": 3000
         }
       ],
-      "spinDownDelay": [
-        {
-          "initiation": 200,
-          "duration": 4000
-        },
-        {
-          "initiation": 150,
-          "duration": 1000
-        }
-      ],
       "proportionalFactor": 0.02,
       "hysteresis": 0.08
     }
