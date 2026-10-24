@@ -28,10 +28,11 @@ enum accelerationType {
 
     class OneSenseReadPerCycle {
         private:
+            mutex oneReadPerCycleMutex;
             unordered_map<string, int> savedValues;
         public:
             bool isValueSet(string& senseName);
-            int& getSetValue(string& senseName);
+            int getSetValue(string& senseName);
             void setValue(string& senseName, int val);
             void resetAllSavedValues();
     };
@@ -67,10 +68,12 @@ enum accelerationType {
 
     class FanControl {
         private:
+			int logicPwmTolerances;
             string const autoGenFileAppend = "_fanSettings";
             int fanPwmIndex;
             int fanRpmIndex;
             const string stateFilesPath = "C:\\ProgramData\\fanCommander\\data\\";
+            string autoGenFileName;
 
             string rpmIndex;
 
@@ -90,7 +93,7 @@ enum accelerationType {
             int hysteresisGood;
 
             int prevSetPwm = 0;
-            bool needsChange = true;
+            atomic<bool> needsChange = true;
 
             int feedBackRpm;
 
@@ -107,7 +110,9 @@ enum accelerationType {
 			int spinDownDelayLastDelay = 0;
 
 			bool softAccState = false;
+			bool softDeaccState = false;
 			int* softAccGraph;
+			int* softDeaccGraph;
             mutex turnMutex;
             condition_variable turnCV;
             atomic<int> softFanAccPrevValue = 0;
@@ -116,8 +121,12 @@ enum accelerationType {
 			atomic<bool> renewSoftFanAccThreadCycle = false;
 			atomic<bool> softFanAccEmidiateSet = false;
 			thread softFanAccThread;
+			int softAccelerationTimeframe;
+			int softAccelerationSamplingInterval;
+			int softAccelerationInitTreshold;
         public: 
-            FanControl(int fanPath, string fanNamePathOriginal, int rpmPath, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis, map<int, int> spinUpDelays, map<int, int> spinDownDelays, int* accGraph);
+            FanControl(int logicPwmTolerances, int fanPath, string fanNamePathOriginal, int rpmPath, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis, 
+                map<int, int> spinUpDelays, map<int, int> spinDownDelays, int* accGraph, int* deaccGraph, int softAccelerationTimeframe, int softAccelerationSamplingInterval, int softAccelerationInitTreshold);
             void setFanSpeed(int pwm);
             void softFanAcceleration(int fanPwmIndex, int targetPwm, bool state, bool emidiate);
             void getFeedbackRpm();
@@ -130,9 +139,10 @@ enum accelerationType {
         protected:
 
         public:
-            SetFans(vector<string> tempSensorDevice, vector<string> tempSensorNames, vector<int> tempSenseIndex, vector<vector<pair<int, int>>> tempRpmGraph, 
-                string function, int fanPath, int rmpPath, int minPwm, int maxPwm, int startPwm, int avgTimes, bool overrideMax, double propFactor, double hysteresis, OneSenseReadPerCycle* oneSensePc, bool osrpcState, string fanNamePathOriginal, map<int, int> spinUpDelays, map<int, int> spinDownDelays, int* accGraph) :
-            FanControl(fanPath, fanNamePathOriginal, rmpPath, minPwm, maxPwm, startPwm, overrideMax, propFactor, hysteresis, spinUpDelays, spinDownDelays, accGraph), 
+            SetFans(int logicPwmTolerances, vector<string> tempSensorDevice, vector<string> tempSensorNames, vector<int> tempSenseIndex, vector<vector<pair<int, int>>> tempRpmGraph, 
+                string function, int fanPath, int rmpPath, int minPwm, int maxPwm, int startPwm, int avgTimes, bool overrideMax, double propFactor, double hysteresis, OneSenseReadPerCycle* oneSensePc, 
+                bool osrpcState, string fanNamePathOriginal, map<int, int> spinUpDelays, map<int, int> spinDownDelays, int* accGraph, int* deaccGraph, int softAccelerationTimeframe, int softAccelerationSamplingInterval, int softAccelerationInitTreshold) :
+            FanControl(logicPwmTolerances, fanPath, fanNamePathOriginal, rmpPath, minPwm, maxPwm, startPwm, overrideMax, propFactor, hysteresis, spinUpDelays, spinDownDelays, accGraph, deaccGraph, softAccelerationTimeframe, softAccelerationSamplingInterval, softAccelerationInitTreshold), 
             GetTemperature(tempSensorDevice, tempSensorNames, tempSenseIndex, tempRpmGraph, function, maxPwm, avgTimes, oneSensePc, osrpcState) {
 
             };

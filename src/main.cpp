@@ -16,6 +16,7 @@
 #include <thread>
 #include <cmath>
 #include "eventLogger.h"
+//#include <crtdbg.h>
 
 #define LOG_AREA_INIT "Initialization"
 
@@ -58,6 +59,11 @@ BOOL WINAPI ConsoleHandler(DWORD event) {
 }
 
 int main(int argc, char** argv) {
+    /*_CrtSetDbgFlag(
+        _CRTDBG_ALLOC_MEM_DF |
+        _CRTDBG_CHECK_ALWAYS_DF
+    );*/
+
     SetConsoleCtrlHandler(ConsoleHandler, TRUE);
 
     bool testFans = false;
@@ -115,15 +121,23 @@ int main(int argc, char** argv) {
     jsonConfigReader->printParsedJsonInStdout(fanControlParam, softwareParam);
 
     vector<int*> softAccelerationGraph;
+	vector<int*> softDeaccelerationGraph;
     vector<string> softAccelerationGraphPlot;
+	int deaccelerationK = 0.2;
+	int deaccelerationA = 13;
 
     for (int i = 0; i < fanControlParam->fanControlIndexs.size(); i++) {
         if (fanControlParam->softAccelerationTypes[i] != "null" && fanControlParam->softAccelerationK[i] != 0) {
-            softAccelerationGraph.push_back(createSoftAccelerationGraph(fanControlParam->softAccelerationTypes[i], fanControlParam->softAccelerationK[i], fanControlParam->softAccelerationN[i]));
+            softAccelerationGraph.push_back(createSoftAccelerationGraph(fanControlParam->softAccelerationTypes[i], fanControlParam->softAccelerationK[i], fanControlParam->softAccelerationA[i]));
+            if (fanControlParam->softAccelerationDeaccelerations[i])
+                softDeaccelerationGraph.push_back(createSoftAccelerationGraph("EXPONENTIAL", deaccelerationK, deaccelerationA));
+            else
+				softDeaccelerationGraph.push_back(nullptr);
             if (accelerationGraphs)
                 softAccelerationGraphPlot.push_back(plotSoftAccelerationGraph(softAccelerationGraph[i]));
         }
         else {
+			softDeaccelerationGraph.push_back(nullptr);
 			softAccelerationGraph.push_back(nullptr);
 			if (accelerationGraphs)
 				softAccelerationGraphPlot.push_back("No soft acceleration graph defined."); 
@@ -169,8 +183,10 @@ int main(int argc, char** argv) {
 
         string uniqueFanCtrlName = to_string(fanControlParam->fanControlIndexs[i]) + "_" + to_string(fanControlParam->fanRpmIndexs[i]);
 
-        setFans.push_back(new SetFans(sensorNames, sensorNamesDevices, deviceIndexes, buildTempTempRpmGraphs, fanControlParam->sensorFunctions[i], fanControl[i], fanRpm[i],
-        fanControlParam->minPwms[i], fanControlParam->maxPwms[i], fanControlParam->startPwms[i], fanControlParam->avgTimes[i], fanControlParam->overrideMax[i], fanControlParam->proportionalFactor[i], fanControlParam->hysteresis[i], oneRead, softwareParam->oneSenseReadPc, uniqueFanCtrlName, fanControlParam->spinUpDelays[i], fanControlParam->spinDownDelays[i], softAccelerationGraph[i]));
+        setFans.push_back(new SetFans(softwareParam->logicPwmTolerances, sensorNames, sensorNamesDevices, deviceIndexes, buildTempTempRpmGraphs, fanControlParam->sensorFunctions[i], fanControl[i], fanRpm[i],
+        fanControlParam->minPwms[i], fanControlParam->maxPwms[i], fanControlParam->startPwms[i], fanControlParam->avgTimes[i], fanControlParam->overrideMax[i], fanControlParam->proportionalFactor[i], fanControlParam->hysteresis[i], 
+            oneRead, softwareParam->oneSenseReadPc, uniqueFanCtrlName, fanControlParam->spinUpDelays[i], fanControlParam->spinDownDelays[i], 
+            softAccelerationGraph[i], softDeaccelerationGraph[i], fanControlParam->softAccelerationTimeframes[i], fanControlParam->softAccelerationSamplingIntervals[i], fanControlParam->softAccelerationInitTresholds[i]));
     }
 
     int balancedRefreshTime = 0;
@@ -256,20 +272,27 @@ int main(int argc, char** argv) {
 
 }
 
-int* createSoftAccelerationGraph(string type, double k, double n) {
+int* createSoftAccelerationGraph(string type, double k, double a) {
     int* graph = new int[255]{};
-    if ((type == "EXPONENTIAL" || type == "exponential") && n == 0)
-        n = 1;
+    if ((type == "EXPONENTIAL" || type == "exponential") && a == 0)
+        a = 1;
     for (int i = 0; i < 255; i++) {
         if (type == "LINEAR" || type == "linear") {
-			graph[i] = k * i + n;
+            graph[i] = static_cast<int> (round((a / 8) * i));
         }
         else if (type == "EXPONENTIAL" || type == "exponential") {
-            double y = n * (pow(2.71828, k * i) - 1);
+            double y = a * (pow(2.71828, k * i) - 1);
             if (!std::isfinite(y) || y > 255)
                 graph[i] = -1;
             else {
 				graph[i] = static_cast<int>(round(y));
+            }
+        } else if (type == "LOGARITHMIC" || type == "logarithmic") {
+            double y = a * log(k * i + 1);
+            if (!std::isfinite(y) || y > 255)
+                graph[i] = -1;
+            else {
+                graph[i] = static_cast<int>(round(y));
             }
         }
     }

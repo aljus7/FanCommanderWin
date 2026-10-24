@@ -16,10 +16,12 @@ LOGGER = src\eventLogger.cpp
 
 # NOTE: removed /EHsc because /clr is incompatible with /EH options
 CFLAGS = /nologo /MD /W3 /O2 /std:c++17 /D_HAS_STD_BYTE=0 /I"." /I"src"
+# CFLAGS = /nologo /MDd /Zi /Od /fsanitize=address /W4 /std:c++17 /D_HAS_STD_BYTE=0 /I"." /I"src" # debug flags
 CLRFLAGS = /clr
 DLLFLAGS = /LD
 LINKER_FLAGS = /subsystem:windows /ENTRY:mainCRTStartup
 # LINKER_FLAGS = /subsystem:console
+#Use /subsystem:console for debuging, /subsystem:windows /ENTRY:mainCRTStartup for release
 
 ALL: $(LHM_DLL) $(PROG)
 
@@ -27,8 +29,6 @@ $(LHM_DLL):
 	if not exist output mkdir output
 	if not exist "$(LHM_DLLREF)" echo WARNING: "$(LHM_DLLREF)" not found
 	cl $(CFLAGS) $(CLRFLAGS) $(DLLFLAGS) "$(LHM_SRC)" "$(LOGGER)" /Fe"$(LHM_DLL)" /I"$(LHM_DIR)" /AI"$(LHM_DIR)" /FU"$(LHM_DLLREF)" /link advapi32.lib
-
-#Use /subsystem:console for debuging, /subsystem:windows /ENTRY:mainCRTStartup for release
 
 $(PROG): $(LHM_LIB)
 	if not exist output mkdir output

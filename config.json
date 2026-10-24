@@ -1,7 +1,8 @@
 {
   "settings": {
     "refreshInterval": 500,
-    "oneSensorReadPerCycle": true
+    "oneSensorReadPerCycle": true,
+    "logicPwmTolerances": 5
   },
 
   "tempSensors": [
@@ -98,8 +99,11 @@
       ],
       "softAcceleration": {
         "type": "exponential",
-        "k": 0.02,
-        "a": 1
+        "timeframe": 10000,
+        "samplingInterval": 100,
+        "softDeacceleration": true,
+        "strength": 50,
+        "pwmInitiationThreshold": 20
       },
       "proportionalFactor": 0.02,
       "hysteresis": 0.08
