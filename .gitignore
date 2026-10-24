@@ -9,3 +9,13 @@ output
 *.dll
 *.lib
 *.exp
+/eventLogger.obj
+/fanControl.obj
+/LHMBridge.dll
+/LHMBridge.exp
+/LHMBridge.lib
+/LHMBridge.obj
+/main.obj
+/readJson.obj
+/LHMBridge.pdb
+*.pdb
