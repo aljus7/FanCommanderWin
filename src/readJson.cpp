@@ -37,6 +37,10 @@ void JsonConfigReader::readJsonConfig() {
         this->oneSenseReadPc = conf["settings"]["oneSensorReadPerCycle"].get<bool>();
     else
         this->oneSenseReadPc = false;
+    if (conf.contains("settings") && conf["settings"].contains("logicPwmTolerances"))
+        this->logicPwmTolerances = conf["settings"]["logicPwmTolerances"].get<int>();
+    else
+        this->logicPwmTolerances = 5;
 
     if (conf.contains("tempSensors") && conf["tempSensors"].is_array()) {
         for (const auto &sensor : conf["tempSensors"]) {
@@ -145,6 +149,24 @@ void JsonConfigReader::readJsonConfig() {
             }
             this->spinDownDelays.push_back(spinDownDelays);
 
+            if (fan.contains("softAcceleration") && fan["softAcceleration"].is_object() && (fan["softAcceleration"].contains("type") && fan["softAcceleration"].contains("strength") && fan["softAcceleration"].contains("softDeacceleration") && fan["softAcceleration"].contains("pwmInitiationThreshold") && fan["softAcceleration"].contains("timeframe") && fan["softAcceleration"].contains("samplingInterval"))) {
+                this->softAccelerationTypes.push_back(fan["softAcceleration"]["type"].get<string>());
+                this->softAccelerationK.push_back(0.03);
+                this->softAccelerationA.push_back(((fan["softAcceleration"]["strength"].get<int>()) < 100 && (fan["softAcceleration"]["strength"].get<int>()) > 0)?((fan["softAcceleration"]["strength"].get<int>())/2):20);
+				this->softAccelerationTimeframes.push_back(fan["softAcceleration"]["timeframe"].get<int>());
+				this->softAccelerationSamplingIntervals.push_back(fan["softAcceleration"]["samplingInterval"].get<int>());
+				this->softAccelerationDeaccelerations.push_back(fan["softAcceleration"]["softDeacceleration"].get<bool>());
+				this->softAccelerationInitTresholds.push_back(fan["softAcceleration"]["pwmInitiationThreshold"].get<int>());
+            } else {
+                this->softAccelerationTypes.push_back("null");
+                this->softAccelerationK.push_back(0);
+                this->softAccelerationA.push_back(0);
+				this->softAccelerationTimeframes.push_back(0);
+				this->softAccelerationSamplingIntervals.push_back(0);
+				this->softAccelerationDeaccelerations.push_back(false);
+				this->softAccelerationInitTresholds.push_back(0);
+            }
+
         }
     } else {
         errorLog("'fans' array sould exist in config.");
@@ -155,6 +177,7 @@ void JsonConfigReader::readJsonConfig() {
 void JsonConfigReader::returnJsonConfig(FanControlParam* fanControlParam, SoftwareParam* softwareParam) {
     softwareParam->refreshInterval = this->refresh_interval;
     softwareParam->oneSenseReadPc = this->oneSenseReadPc;
+    softwareParam->logicPwmTolerances = this->logicPwmTolerances;
 
     if (this->name.empty()) {
 		errorLog("There are no sensor names set!");
@@ -256,6 +279,14 @@ void JsonConfigReader::returnJsonConfig(FanControlParam* fanControlParam, Softwa
         }
         fanControlParam->spinDownDelays.push_back(spinDownDelaysMap);
     }
+
+	fanControlParam->softAccelerationTypes = this->softAccelerationTypes;
+	fanControlParam->softAccelerationK = this->softAccelerationK;
+	fanControlParam->softAccelerationA = this->softAccelerationA;
+	fanControlParam->softAccelerationTimeframes = this->softAccelerationTimeframes;
+	fanControlParam->softAccelerationSamplingIntervals = this->softAccelerationSamplingIntervals;
+	fanControlParam->softAccelerationDeaccelerations = this->softAccelerationDeaccelerations;
+	fanControlParam->softAccelerationInitTresholds = this->softAccelerationInitTresholds;
 }
 
 void JsonConfigReader::printParsedJsonInStdout(FanControlParam* fcp, SoftwareParam* sp) {
@@ -267,6 +298,8 @@ void JsonConfigReader::printParsedJsonInStdout(FanControlParam* fcp, SoftwarePar
 	addLoggingAreaMessage(area, "Refresh interval: " + to_string(sp->refreshInterval));
     cout << "One Sensor Read Per Cycle optimization: " << (sp->refreshInterval ? "ON" : "OFF");
 	addLoggingAreaMessage(area, "One Sensor Read Per Cycle optimization: " + string((sp->refreshInterval ? "ON" : "OFF")));
+	cout << endl << "Logic PWM tolerances: " << sp->logicPwmTolerances << endl;
+	addLoggingAreaMessage(area, "Logic PWM tolerances: " + to_string(sp->logicPwmTolerances));
     cout << endl << "Sensors:";
 	addLoggingAreaMessage(area, "Sensors:");
     for (int i = 0; i < fcp->sensorNames.size(); i++) {
@@ -319,7 +352,8 @@ void JsonConfigReader::printParsedJsonInStdout(FanControlParam* fcp, SoftwarePar
 		addLoggingAreaMessage(area, "\tProportional factor value: " + ((fcp->proportionalFactor[i] == 0) ? "OFF" : to_string(fcp->proportionalFactor[i])));
         cout << "\tHysteresis percentage: " << fcp->hysteresis[i]*100 << "%" << endl;
 		addLoggingAreaMessage(area, "\tHysteresis percentage: " + to_string(fcp->hysteresis[i] * 100) + "%");
-		cout << "\tSpin up delays: " << endl;
+		
+        cout << "\tSpin up delays: " << endl;
 		addLoggingAreaMessage(area, "\tSpin delays: ");
 		map<int, int> spinUpDelaysMap = fcp->spinUpDelays[i];
         if (spinUpDelaysMap.empty()) {
@@ -339,6 +373,21 @@ void JsonConfigReader::printParsedJsonInStdout(FanControlParam* fcp, SoftwarePar
             cout << "\t\tSpin down delays defined." << endl;
             addLoggingAreaMessage(area, "\t\tSpin down delays defined.");
         }
+
+		cout << "\tSoft acceleration type: " << fcp->softAccelerationTypes[i] << endl;
+		addLoggingAreaMessage(area, "\tSoft acceleration type: " + fcp->softAccelerationTypes[i]);
+		cout << "\tSoft acceleration k: " << fcp->softAccelerationK[i] << endl;
+		addLoggingAreaMessage(area, "\tSoft acceleration k: " + to_string(fcp->softAccelerationK[i]));
+		cout << "\tSoft acceleration a: " << fcp->softAccelerationA[i] << endl;
+		addLoggingAreaMessage(area, "\tSoft acceleration a: " + to_string(fcp->softAccelerationA[i]));
+		cout << "\tSoft acceleration timeframe: " << fcp->softAccelerationTimeframes[i] << endl;
+		addLoggingAreaMessage(area, "\tSoft acceleration timeframe: " + to_string(fcp->softAccelerationTimeframes[i]));
+		cout << "\tSoft acceleration sampling interval: " << fcp->softAccelerationSamplingIntervals[i] << endl;
+		addLoggingAreaMessage(area, "\tSoft acceleration sampling interval: " + to_string(fcp->softAccelerationSamplingIntervals[i]));
+		cout << "\tSoft acceleration deacceleration: " << (fcp->softAccelerationDeaccelerations[i] ? "ON" : "OFF") << endl;
+		addLoggingAreaMessage(area, "\tSoft acceleration deacceleration: " + string((fcp->softAccelerationDeaccelerations[i] ? "ON" : "OFF")));
+		cout << "\tSoft acceleration PWM initiation threshold: " << fcp->softAccelerationInitTresholds[i] << endl;
+		addLoggingAreaMessage(area, "\tSoft acceleration PWM initiation threshold: " + to_string(fcp->softAccelerationInitTresholds[i]));
     }
     cout << endl << endl;
 

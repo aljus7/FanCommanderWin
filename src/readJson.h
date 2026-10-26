@@ -15,6 +15,7 @@ using namespace std;
 struct SoftwareParam {
     int refreshInterval;
     bool oneSenseReadPc;
+    int logicPwmTolerances;
 };
 
 struct FanControlParam {
@@ -37,6 +38,13 @@ struct FanControlParam {
     vector<double> hysteresis;
     vector<map<int, int>> spinUpDelays;
     vector<map<int, int>> spinDownDelays;
+    vector<string> softAccelerationTypes;
+    vector<double> softAccelerationK;
+	vector<double> softAccelerationA;
+    vector<int> softAccelerationTimeframes;
+    vector<int> softAccelerationSamplingIntervals;
+    vector<bool> softAccelerationDeaccelerations;
+	vector<int> softAccelerationInitTresholds;
 };
 
 class JsonConfigReader {
@@ -45,6 +53,7 @@ class JsonConfigReader {
 
         int refresh_interval;
         bool oneSenseReadPc;
+		int logicPwmTolerances;
 
         vector<string> name;
         vector<string> sensorName;
@@ -65,6 +74,14 @@ class JsonConfigReader {
 
         vector<vector<tuple<int, int, int>>> spinUpDelays;
         vector<vector<tuple<int, int, int>>> spinDownDelays;
+
+        vector<string> softAccelerationTypes;
+        vector<double> softAccelerationK;
+        vector<double> softAccelerationA;
+		vector<int> softAccelerationTimeframes;
+		vector<int> softAccelerationSamplingIntervals;
+		vector<bool> softAccelerationDeaccelerations;
+		vector<int> softAccelerationInitTresholds;
     public:
         JsonConfigReader(string configPath);
         void readJsonConfig();

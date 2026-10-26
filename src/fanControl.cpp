@@ -12,8 +12,6 @@
 #include <eventLogger.h>
 using json = nlohmann::json;
 
-mutex oneReadPerCycleMutex;
-
 DeviceType getDeviceTypeFromString(const std::string& str) {
     if (str == "CPU") return DeviceType::CPU;
     if (str == "GPU") return DeviceType::GPU;
@@ -130,13 +128,12 @@ void GetTemperature::getRpm() {
 
     if (this->osrpcState) {
         for(int i = 0; i < this->tempSensorDevice.size(); i++) {
-            if (!osrpc->isValueSet(this->uniqueSensorNames[i])) {
-                temps[i] = GetDeviceTemp(this->tempSensorDeviceType[i], this->tempSensorNamesVarchar[i].c_str(), this->tempSensorIndexes[i]);
-                osrpc->setValue(this->uniqueSensorNames[i], temps[i]);
-            } else {
                 temps[i] = osrpc->getSetValue(this->uniqueSensorNames[i]);
+                if (temps[i] < 0) {
+                    temps[i] = GetDeviceTemp(this->tempSensorDeviceType[i], this->tempSensorNamesVarchar[i].c_str(), this->tempSensorIndexes[i]);
+                    osrpc->setValue(this->uniqueSensorNames[i], temps[i]);
+                }
                 //cout << "Setting saved value " << temps[i] << endl;
-            }
         }
     } else {
         for(int i = 0; i < this->tempSensorDevice.size(); i++) {
@@ -193,6 +190,7 @@ void GetTemperature::getRpm() {
 
 }
 
+// pwm haha
 int GetTemperature::getFanRpm() {
 
     if(this->rpms.size() > 1) { 
@@ -202,6 +200,7 @@ int GetTemperature::getFanRpm() {
             for (int i = 1; i < this->rpms.size(); i++) {
                     max = max > rpms[i] ? max : rpms[i];
             }
+			this->dataProvider_unfilteredFanPwm = max;
             return averaging(max);
         }
 
@@ -210,6 +209,7 @@ int GetTemperature::getFanRpm() {
             for (int i = 1; i < this->rpms.size(); i++) {
                     min = min < rpms[i] ? min : rpms[i];
             }
+			this->dataProvider_unfilteredFanPwm = min;
             return averaging(min);
         }
 
@@ -220,6 +220,7 @@ int GetTemperature::getFanRpm() {
                 sum += rpms[i];
             }
             avg = sum/rpms.size();
+			this->dataProvider_unfilteredFanPwm = avg;
             return averaging(avg);
         }
 
@@ -230,11 +231,13 @@ int GetTemperature::getFanRpm() {
         }
         
     } else {
+		this->dataProvider_unfilteredFanPwm = this->rpms[0];
         return averaging(this->rpms[0]);
     }
 }
 
-FanControl::FanControl(int fanIndex, string fanNamePathUnique, int rpmIndex, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis, map<int, int> spinUpDelays, map<int, int> spinDownDelays) {
+FanControl::FanControl(int logicPwmTolerances, int fanIndex, string fanNamePathUnique, int rpmIndex, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis, 
+    map<int, int> spinUpDelays, map<int, int> spinDownDelays, int* accGraph, int* deaccGraph, int softAccelerationTimeframe, int softAccelerationSamplingInterval, int softAccelerationInitTreshold) {
 
     if (fanIndex < 0 && rpmIndex < 0) {
         errorLog("Fan and rpm index should both be positive integers");
@@ -243,6 +246,7 @@ FanControl::FanControl(int fanIndex, string fanNamePathUnique, int rpmIndex, int
 
     this->fanPwmIndex = fanIndex;
     this->fanRpmIndex = rpmIndex;
+    this->logicPwmTolerances = logicPwmTolerances;
 
     if (hysteresis < 1 && hysteresis >= 0) {
         this->hysteresisGood = hysteresis*255;
@@ -270,6 +274,144 @@ FanControl::FanControl(int fanIndex, string fanNamePathUnique, int rpmIndex, int
         this->overrideMax = false;
     }
 
+    if (accGraph == nullptr || propFactor > 0) {
+        if (propFactor > 0 && accGraph != nullptr) {
+            cout << "Note: Soft fan acceleration cant be enabled if proportional factor is more that 0" << endl;
+			addLoggingAreaMessage(LOG_AREA_FANCONTROL, "Note: Soft fan acceleration cant be enabled if proportional factor is more that 0");
+        }
+        this->softAccState = false;
+        this->softAccGraph = nullptr;
+		this->softDeaccGraph = nullptr;
+		this->softFanAccThreadRunState = false;
+		this->softAccelerationTimeframe = 0;
+		this->softAccelerationSamplingInterval = 0;
+		this->softAccelerationInitTreshold = 0;
+    } else {
+        this->softAccState = true;
+        this->softAccGraph = accGraph;
+        if (deaccGraph != nullptr) {
+			this->softDeaccState = true;
+        } else {
+			this->softDeaccState = false;
+        }
+		this->softDeaccGraph = deaccGraph;
+		this->softAccelerationTimeframe = softAccelerationTimeframe;
+		this->softAccelerationSamplingInterval = softAccelerationSamplingInterval;
+		this->softAccelerationInitTreshold = softAccelerationInitTreshold;
+		int stepSize = 255 / (softAccelerationTimeframe / softAccelerationSamplingInterval);
+		bool deaccSoftState = this->softDeaccState;
+        this->softFanAccThread = thread([this, accGraph, deaccGraph, stepSize, softAccelerationSamplingInterval, deaccSoftState, softAccelerationInitTreshold]() {
+			auto& prevValue = this->softFanAccPrevValue;
+			auto& currValue = this->softFanAccCurrValue;
+			auto& softFanAccEmidiateSet = this->softFanAccEmidiateSet;
+			auto& renewSoftFanAccThreadCycle = this->renewSoftFanAccThreadCycle;
+			auto& softFanAccThreadRunState = this->softFanAccThreadRunState;
+			auto& turnMutex = this->turnMutex;
+			auto& turnCV = this->turnCV;
+			auto& fanPwmIndex = this->fanPwmIndex;
+			auto& accGraph = this->softAccGraph;
+			auto& deaccGraph = this->softDeaccGraph;
+            int deaccSize = 40;
+            int trijectory = 0;
+			int currValueWork = 0;
+			auto& needsChange = this->needsChange;
+			bool nudge = false;
+			bool& softDeaccState = this->softDeaccState;
+            while (softFanAccThreadRunState) {
+                unique_lock<mutex> lk(turnMutex);
+                turnCV.wait(lk, [&] { return !softFanAccThreadRunState || renewSoftFanAccThreadCycle; });
+                renewSoftFanAccThreadCycle = false;
+                lk.unlock();
+
+                if (!softFanAccThreadRunState)
+                    break;
+
+                if (!softFanAccEmidiateSet && abs(prevValue - currValue) > softAccelerationInitTreshold) {
+					nudge = true;
+                    currValueWork = currValue;
+                    trijectory = currValue;
+                    if (currValue > prevValue) {
+                        if (!deaccSoftState || abs(currValue - prevValue) > 40) {
+                            for (int i = 0; i < 255; i += stepSize) {
+                                trijectory += accGraph[i];
+                                if (trijectory < 255 && accGraph[i] != -1) {
+                                    SetFanPwm(fanPwmIndex, trijectory);
+                                    lk.lock();
+                                    turnCV.wait_for(lk, std::chrono::milliseconds(softAccelerationSamplingInterval), [&] { return !softFanAccThreadRunState || renewSoftFanAccThreadCycle; });
+                                    lk.unlock();
+                                    if (currValue <= trijectory || softFanAccEmidiateSet) {
+                                        break;
+                                    }
+                                }
+                                else {
+                                    break;
+                                }
+                            }
+                        }
+                        else {
+                            for (int i = 0; i <= deaccSize; i += stepSize) {
+                                trijectory += deaccGraph[i];
+                                if (trijectory < 255 && deaccGraph[i] != -1) {
+                                    SetFanPwm(fanPwmIndex, trijectory);
+                                    lk.lock();
+                                    turnCV.wait_for(lk, std::chrono::milliseconds(softAccelerationSamplingInterval), [&] { return !softFanAccThreadRunState || renewSoftFanAccThreadCycle; });
+                                    lk.unlock();
+                                    if (currValue <= trijectory || softFanAccEmidiateSet) {
+                                        break;
+                                    }
+                                }
+                                else {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    else {
+                        if (!deaccSoftState || abs(currValue - prevValue) > 40) {
+                            for (int i = 0; i < 255; i += stepSize) {
+                                trijectory -= accGraph[i];
+                                if (trijectory > 0 && accGraph[i] != -1) {
+                                    SetFanPwm(fanPwmIndex, trijectory);
+                                    lk.lock();
+                                    turnCV.wait_for(lk, std::chrono::milliseconds(softAccelerationSamplingInterval), [&] { return !softFanAccThreadRunState || renewSoftFanAccThreadCycle; });
+                                    lk.unlock();
+                                    if (currValue >= trijectory || softFanAccEmidiateSet) {
+                                        break;
+                                    }
+                                }
+                                else {
+                                    break;
+                                }
+                            }
+                        }
+                        else {
+                            for (int i = deaccSize; i >= 0; i -= stepSize) {
+                                trijectory -= deaccGraph[i];
+                                if (trijectory > 0 && deaccGraph[i] != -1) {
+                                    SetFanPwm(fanPwmIndex, trijectory);
+                                    lk.lock();
+                                    turnCV.wait_for(lk, std::chrono::milliseconds(softAccelerationSamplingInterval), [&] { return !softFanAccThreadRunState || renewSoftFanAccThreadCycle; });
+                                    lk.unlock();
+                                    if (currValue >= trijectory || softFanAccEmidiateSet) {
+                                        break;
+                                    }
+                                }
+                                else {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } else if (needsChange.load() || softFanAccEmidiateSet || nudge) {
+                    if (nudge)
+						nudge = false;
+                    SetFanPwm(fanPwmIndex, currValue);
+                }
+                prevValue.store(currValue.load());
+            }
+        });
+    }
+
     this->propFactor = propFactor;
 
     this->spinUpDelays = spinUpDelays;
@@ -281,36 +423,35 @@ FanControl::FanControl(int fanIndex, string fanNamePathUnique, int rpmIndex, int
     filesystem::create_directories(this->stateFilesPath);
 
     regex nonDigit("[^0-9]+");
-    string autoGenFileName = this->stateFilesPath + regex_replace(fanNamePathUnique, nonDigit, "") + this->autoGenFileAppend;
+    this->autoGenFileName = this->stateFilesPath + regex_replace(fanNamePathUnique, nonDigit, "") + this->autoGenFileAppend;
 
-    if (autoGenFileName.empty()) {
+    if (this->autoGenFileName.empty()) {
 		errorLog("Fan control file doesn't contain any digits to create unique auto gen file name. Feel free to MR this issue with better solution.");
         throw std::invalid_argument("Fan control file doesent contain any digits to create unique auto gen file name. Feel free to MR this issue with better solution.");
     }
 
-    std::ifstream checkFile(autoGenFileName);
+    std::ifstream checkFile(this->autoGenFileName);
     bool fileExists = checkFile.good();
     checkFile.close();
 
     // Open with trunc if file doesn't exist, else open normally
     std::ios_base::openmode mode = std::ios::out | std::ios::in;
-
     if (!fileExists) {
-        mode = std::ios::out | std::ios::trunc;  // create new file
+        mode = std::ios::out | std::ios::trunc | std::ios::in;
     }
 
-    fanSettingsAutoGenFile.open(autoGenFileName, mode);
+    fanSettingsAutoGenFile.open(this->autoGenFileName, mode);
 
     if (!fanSettingsAutoGenFile.is_open()) {
-		errorLog("Failed to open autoGen file: " + autoGenFileName);
-        std::cerr << "Failed to open autoGen file: " << autoGenFileName << std::endl;
+		errorLog("Failed to open autoGen file: " + this->autoGenFileName);
+        std::cerr << "Failed to open autoGen file: " << this->autoGenFileName << std::endl;
         return;
     }
 
     if (fileExists) {
-    getMinStartPwm(fanSettingsAutoGenFile);
+        getMinStartPwm(fanSettingsAutoGenFile);
     } else {
-    writeMinStartPwm(fanSettingsAutoGenFile);
+        writeMinStartPwm(fanSettingsAutoGenFile);
     }
 
     fanSettingsAutoGenFile.close();
@@ -325,7 +466,9 @@ void FanControl::getMinStartPwm(fstream &file) {
             savedSettingsJson += line;
         }
         json savedVal = json::parse(savedSettingsJson);
-        if (savedVal["overrideMax"] != this->overrideMax || this->propFactor == 0 && savedVal["proportionalFactor"] > 0) {
+        if (savedVal["overrideMax"].get<bool>() != this->overrideMax || 
+            (savedVal["proportionalFactor"].get<double>() > 0 && this->propFactor == 0) || 
+            (savedVal["proportionalFactor"].get<double>() == 0 && this->propFactor > 0)) {
             writeMinStartPwm(file);
             return;
         }
@@ -443,20 +586,24 @@ void FanControl::writeMinStartPwm(fstream &file) {
         this->minPwmGood = this->minPwm;
     }
 
-    if(file.is_open()) {
-        json jObject;
-        jObject["minPwm"] = this->minPwmGood;
-        jObject["startPwm"] = this->startPwmGood;
-        jObject["maxPwm"] = this->maxPwmGood;
-        jObject["overrideMax"] = this->overrideMax;
-        jObject["proportionalFactor"] = this->propFactor;
-        jObject["pwmRpmData"] = json::array();
-        for (int i = 0; i <= 255; i++) {
-            nlohmann::json entry;
-            entry["pwm"] = i;
-            entry["rpm"] = this->rpmPwmCoorelation[i];
-            jObject["pwmRpmData"].push_back(entry);
-        }
+    json jObject;
+    jObject["minPwm"] = this->minPwmGood;
+    jObject["startPwm"] = this->startPwmGood;
+    jObject["maxPwm"] = this->maxPwmGood;
+    jObject["overrideMax"] = this->overrideMax;
+    jObject["proportionalFactor"] = this->propFactor;
+    jObject["pwmRpmData"] = json::array();
+    for (int i = 0; i <= 255; i++) {
+        nlohmann::json entry;
+        entry["pwm"] = i;
+        entry["rpm"] = this->rpmPwmCoorelation[i];
+        jObject["pwmRpmData"].push_back(entry);
+    }
+    if (file.is_open()) {
+        file.close();
+    }
+    file.open(this->autoGenFileName, std::ios::out | std::ios::trunc | std::ios::in);
+    if (file.is_open()) {
         file << jObject.dump(4);
     } else {
         errorLog("Internal settings file is not open!");
@@ -492,77 +639,110 @@ void FanControl::getFeedbackRpm() {
     this->feedBackRpm = fanRpm;
 }
 
+void FanControl::softFanAcceleration(int fanPwmIndex, int targetPwm, bool state, bool emidiate) {
+    if (state) {
+        auto& softFanAccEmidiateSet = this->softFanAccEmidiateSet;
+        auto& renewSoftFanAccThreadCycle = this->renewSoftFanAccThreadCycle;
+        auto& currValue = this->softFanAccCurrValue;
+
+        {
+            lock_guard<mutex> lk(this->turnMutex);
+            softFanAccEmidiateSet = emidiate;
+            currValue = targetPwm;
+            renewSoftFanAccThreadCycle = true;
+        }
+		this->turnCV.notify_one();
+    }
+    else {
+        SetFanPwm(this->fanPwmIndex, targetPwm);
+    }
+}
+
 void FanControl::setFanSpeed(int pwm) {
     getFeedbackRpm();
-    int &prevPwm = this->prevSetPwm;
-    bool &needChange = this->needsChange;
+	this->dataProvider_fanRpm = this->feedBackRpm;
+	int& logicPwmTolerances = this->logicPwmTolerances;
+    int& prevPwm = this->prevSetPwm;
+    auto& needChange = this->needsChange;
+
+	bool& spinDownDelaysState = this->spinDownDelaysState;
+	bool& spinUpDelaysState = this->spinUpDelaysState;
 	int &spinUpDelayLastPwm = this->spinUpDelayLastPwm;
 	int &spinUpDelayLastDelay = this->spinUpDelayLastDelay;
-
+	int& spinUpDelayCountdown = this->spinUpDelayCountdown;
 	int &spinDownDelayLastPwm = this->spinDownDelayLastPwm;
 	int &spinDownDelayLastDelay = this->spinDownDelayLastDelay;
+	int& spinDownDelayCountdown = this->spinDownDelayCountdown;
+
+	bool& softAccState = this->softAccState;
 
     if (pwm <= 255 && pwm >= 0) {
         if (pwm >= this->minPwmGood && this->feedBackRpm == 0) {
-            if (255 - this->startPwmGood > 10)  {   
-                SetFanPwm(this->fanPwmIndex, this->startPwmGood + 10);
+            if (255 - this->startPwmGood > 10)  { 
+                softFanAcceleration(this->fanPwmIndex, this->startPwmGood + 10, softAccState, true);
             } else {
-                SetFanPwm(this->fanPwmIndex, this->startPwmGood);
+                softFanAcceleration(this->fanPwmIndex, this->startPwmGood, softAccState, true);
 				errorLog("ATENTION: Critical system failure, fan is likely dead!");
                 cout << "ATENTION: Critical system failure, fan is likely dead!" << endl;
             }
         }
 
-        if (this->spinUpDelaysState) {
+        if (spinUpDelaysState) {
             auto it = this->spinUpDelays.find(pwm);
             if (it != this->spinUpDelays.end() && it->second > 0) {
                 if (spinUpDelayLastDelay != it->second) {
                     spinUpDelayLastDelay = 0;
                 }
-                if (this->spinUpDelayCountdown <= 0 && pwm > prevPwm) {
-                    this->spinUpDelayCountdown = it->second;
-					spinUpDelayLastDelay = it->second;
-					spinUpDelayLastPwm = pwm;
+                if (spinUpDelayCountdown <= 0 && pwm > prevPwm + logicPwmTolerances) {
+                    spinUpDelayCountdown = it->second;
+                    spinUpDelayLastPwm = pwm;
                 }
-			} else {
-				this->spinUpDelayCountdown = 0;
-			}
+            }
+            else {
+                spinUpDelayCountdown = 0;
+            }
 
-			if (this->spinUpDelayCountdown > 0 && pwm >= spinUpDelayLastPwm) {
-				this->spinUpDelayCountdown--;
-                pwm = spinUpDelayLastPwm;
-			}
+            if (spinUpDelayCountdown > 0) {
+                if (pwm >= spinUpDelayLastPwm - logicPwmTolerances) {
+                    spinUpDelayCountdown--;
+                    pwm = spinUpDelayLastPwm;
+                } else {
+					spinUpDelayCountdown = 0;
+                }
+            }
+			spinUpDelayLastDelay = it->second;
 		}
 
-		if (this->spinDownDelaysState) {
-			auto it = this->spinDownDelays.find(pwm);
-			if (it != this->spinDownDelays.end() && it->second > 0) {
-				if (spinDownDelayLastDelay != it->second) {
-					spinDownDelayLastDelay = 0;
-				}
-				if (this->spinDownDelayCountdown <= 0 && pwm < prevPwm) {
-					this->spinDownDelayCountdown = it->second;
-					spinDownDelayLastDelay = it->second;
-					spinDownDelayLastPwm = pwm;
-				}
-			} else {
-				this->spinDownDelayCountdown = 0;
-			}
+        if (spinDownDelaysState) {
+            auto it = this->spinDownDelays.find(pwm);
+            if (it != this->spinDownDelays.end() && it->second > 0) {
+                if (spinDownDelayCountdown <= 0 && pwm < prevPwm - logicPwmTolerances) {
+                    spinDownDelayCountdown = it->second;
+                    spinDownDelayLastPwm = pwm;
+                }
+            }
+            else {
+                spinDownDelayCountdown = 0;
+            }
 
-			if (this->spinDownDelayCountdown > 0 && pwm <= spinDownDelayLastPwm) {
-				this->spinDownDelayCountdown--;
-                pwm = spinDownDelayLastPwm;
-			}
+            if (spinDownDelayCountdown > 0) {
+                if (pwm <= spinDownDelayLastPwm + logicPwmTolerances) {
+                    spinDownDelayCountdown--;
+                    pwm = spinDownDelayLastPwm;
+                } else {
+					spinDownDelayCountdown = 0;
+                }
+            }
 		}
 
         if (this->hysteresisGood > 0) {
             if (abs(prevPwm-pwm) < this->hysteresisGood) {
                 pwm = prevPwm;
                 if (this->propFactor == 0) {
-                    needChange = false;
+                    needChange.store(false);
                 } 
             } else {
-                needChange = true;
+                needChange.store(true);
             }
         }
 
@@ -581,17 +761,19 @@ void FanControl::setFanSpeed(int pwm) {
 
         }
 
-        if (needChange) {
+        if (needChange.load()) {
 
             if (pwm > this->maxPwmGood) {
                 pwm = maxPwmGood;
             }
 
+			this->dataProvider_filteredFanPwm = pwm;
+
             if (pwm >= this->minPwmGood) {    
-                SetFanPwm(this->fanPwmIndex, pwm);
+                softFanAcceleration(this->fanPwmIndex, pwm, softAccState, false);
 				//cout << "Setting PWM to " << pwm << " for " << this->fanPwmIndex << endl;
             } else {
-                SetFanPwm(this->fanPwmIndex, this->minPwmGood);
+                softFanAcceleration(this->fanPwmIndex, this->minPwmGood, softAccState, true);
             }
                 
         }
@@ -625,10 +807,19 @@ FanControl::~FanControl() {
     if (this->fanSettingsAutoGenFile.is_open())
         this->fanSettingsAutoGenFile.close();
 
+    if (this->softAccState) {
+        this->softFanAccThreadRunState = false;
+        this->renewSoftFanAccThreadCycle = true;
+        this->turnCV.notify_one();
+        if (this->softFanAccThread.joinable()) {
+            this->softFanAccThread.join();
+        }
+    }
+
 }
 
 bool OneSenseReadPerCycle::isValueSet(string& senseName) {
-    lock_guard<mutex> lk(oneReadPerCycleMutex);
+    lock_guard<mutex> lk(this->oneReadPerCycleMutex);
     auto it = savedValues.find(senseName);
     if (it != savedValues.end()) {
         return true;
@@ -636,22 +827,21 @@ bool OneSenseReadPerCycle::isValueSet(string& senseName) {
     return false;
 }
 
-int& OneSenseReadPerCycle::getSetValue(string& senseName) {
-    lock_guard<mutex> lk(oneReadPerCycleMutex);
+int OneSenseReadPerCycle::getSetValue(string& senseName) {
+    lock_guard<mutex> lk(this->oneReadPerCycleMutex);
     auto it = savedValues.find(senseName);
     if (it != savedValues.end()) {
         return it->second;
     }
-    //return 50;
-	throw std::runtime_error("OneReadPerCycle server, Value not set error: " + senseName);
+    return -1;
 }
 
 void OneSenseReadPerCycle::setValue(string& senseName, int val) {
-    lock_guard<mutex> lk(oneReadPerCycleMutex);
+    lock_guard<mutex> lk(this->oneReadPerCycleMutex);
     this->savedValues[senseName] = val;
 }
 
 void OneSenseReadPerCycle::resetAllSavedValues() {
-    lock_guard<mutex> lk(oneReadPerCycleMutex);
+    lock_guard<mutex> lk(this->oneReadPerCycleMutex);
     this->savedValues.clear();
 }
