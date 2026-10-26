@@ -13,6 +13,10 @@ MAIN = src\main.cpp
 FANCONTROL = src\fanControl.cpp
 READJSON = src\readJson.cpp
 LOGGER = src\eventLogger.cpp
+DATA_PROVIDER = src\dataProvider.cpp
+
+IPC_PROG = output\sdk\fanCommanderApi.dll
+IPC_SRC = src\sdk\fanCommanderApi.cpp
 
 # NOTE: removed /EHsc because /clr is incompatible with /EH options
 CFLAGS = /nologo /MD /W3 /O2 /std:c++17 /D_HAS_STD_BYTE=0 /I"." /I"src"
@@ -23,7 +27,7 @@ LINKER_FLAGS = /subsystem:windows /ENTRY:mainCRTStartup
 # LINKER_FLAGS = /subsystem:console
 #Use /subsystem:console for debuging, /subsystem:windows /ENTRY:mainCRTStartup for release
 
-ALL: $(LHM_DLL) $(PROG)
+ALL: $(LHM_DLL) $(PROG) $(IPC_PROG)
 
 $(LHM_DLL):
 	if not exist output mkdir output
@@ -32,12 +36,17 @@ $(LHM_DLL):
 
 $(PROG): $(LHM_LIB)
 	if not exist output mkdir output
-	cl $(CFLAGS) /Fe"$(PROG)" /I"$(VCPKG_INCLUDE)" "$(MAIN)" "$(FANCONTROL)" "$(READJSON)" "$(LOGGER)" "$(LHM_LIB)" /link $(LINKER_FLAGS) advapi32.lib
+	cl $(CFLAGS) /Fe"$(PROG)" /I"$(VCPKG_INCLUDE)" "$(MAIN)" "$(FANCONTROL)" "$(READJSON)" "$(LOGGER)" "$(DATA_PROVIDER)" "$(LHM_LIB)" /link $(LINKER_FLAGS) advapi32.lib
 	copy /Y "$(LHM_DLL)" output
 	if exist "$(LHM_DLLREF)" copy /Y "$(LHM_DLLREF)" output
 
 $(LHM_LIB): $(LHM_DLL)
 	rem LHMBridge.lib is produced automatically by cl when building the DLL
 
+$(IPC_PROG):
+	if not exist output\sdk mkdir output\sdk
+	cl $(CFLAGS) $(DLLFLAGS) /DFANCOMMANDERAPI_EXPORTS /Fe"$(IPC_PROG)" "$(IPC_SRC)" /link advapi32.lib
+
 clean:
 	-del /Q "$(LHM_DLL)" "$(LHM_LIB)" "$(PROG)" || @echo.
+	-del /Q "$(IPC_PROG)" || @echo.

@@ -200,6 +200,7 @@ int GetTemperature::getFanRpm() {
             for (int i = 1; i < this->rpms.size(); i++) {
                     max = max > rpms[i] ? max : rpms[i];
             }
+			this->dataProvider_unfilteredFanPwm = max;
             return averaging(max);
         }
 
@@ -208,6 +209,7 @@ int GetTemperature::getFanRpm() {
             for (int i = 1; i < this->rpms.size(); i++) {
                     min = min < rpms[i] ? min : rpms[i];
             }
+			this->dataProvider_unfilteredFanPwm = min;
             return averaging(min);
         }
 
@@ -218,6 +220,7 @@ int GetTemperature::getFanRpm() {
                 sum += rpms[i];
             }
             avg = sum/rpms.size();
+			this->dataProvider_unfilteredFanPwm = avg;
             return averaging(avg);
         }
 
@@ -228,6 +231,7 @@ int GetTemperature::getFanRpm() {
         }
         
     } else {
+		this->dataProvider_unfilteredFanPwm = this->rpms[0];
         return averaging(this->rpms[0]);
     }
 }
@@ -656,6 +660,7 @@ void FanControl::softFanAcceleration(int fanPwmIndex, int targetPwm, bool state,
 
 void FanControl::setFanSpeed(int pwm) {
     getFeedbackRpm();
+	this->dataProvider_fanRpm = this->feedBackRpm;
 	int& logicPwmTolerances = this->logicPwmTolerances;
     int& prevPwm = this->prevSetPwm;
     auto& needChange = this->needsChange;
@@ -761,6 +766,8 @@ void FanControl::setFanSpeed(int pwm) {
             if (pwm > this->maxPwmGood) {
                 pwm = maxPwmGood;
             }
+
+			this->dataProvider_filteredFanPwm = pwm;
 
             if (pwm >= this->minPwmGood) {    
                 softFanAcceleration(this->fanPwmIndex, pwm, softAccState, false);

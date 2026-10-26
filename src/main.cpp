@@ -16,6 +16,7 @@
 #include <thread>
 #include <cmath>
 #include "eventLogger.h"
+#include "dataProvider.h"
 //#include <crtdbg.h>
 
 #define LOG_AREA_INIT "Initialization"
@@ -188,6 +189,8 @@ int main(int argc, char** argv) {
             oneRead, softwareParam->oneSenseReadPc, uniqueFanCtrlName, fanControlParam->spinUpDelays[i], fanControlParam->spinDownDelays[i], 
             softAccelerationGraph[i], softDeaccelerationGraph[i], fanControlParam->softAccelerationTimeframes[i], fanControlParam->softAccelerationSamplingIntervals[i], fanControlParam->softAccelerationInitTresholds[i]));
     }
+    
+    fanDataProvider* dataProvider = new fanDataProvider(setFans);
 
     int balancedRefreshTime = 0;
     if (setFans.size() > 0) {
@@ -229,6 +232,7 @@ int main(int argc, char** argv) {
     }
 
     while (keepRunning) {
+        dataProvider->readFansData();
 
         for (int j = 0; j < setFans.size(); j++) {
             if (turn.load() == 0) {
@@ -267,6 +271,7 @@ int main(int argc, char** argv) {
     delete fanControlParam;
     delete softwareParam;
     delete oneRead;
+	delete dataProvider;
     
     return 0;
 

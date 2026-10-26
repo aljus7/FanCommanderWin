@@ -62,6 +62,8 @@ enum accelerationType {
             void getRpm();
             int getFanRpm();
         public: 
+			atomic<int> dataProvider_unfilteredFanPwm = 0;
+
             GetTemperature(vector<string> tempSensorDevice, vector<string> tempSensorNames, vector<int> tempSenseIndex, vector<vector<pair<int, int>>> tempRpmGraph, string function, int maxPwm, int avgTimes, OneSenseReadPerCycle* oneSensePc, bool osrpcState);
             ~GetTemperature();
     };
@@ -124,7 +126,10 @@ enum accelerationType {
 			int softAccelerationTimeframe;
 			int softAccelerationSamplingInterval;
 			int softAccelerationInitTreshold;
-        public: 
+        public: 	
+			atomic<int> dataProvider_filteredFanPwm = 0;
+			atomic<int> dataProvider_fanRpm = 0;
+
             FanControl(int logicPwmTolerances, int fanPath, string fanNamePathOriginal, int rpmPath, int minPwm, int maxPwm, int startPwm, bool overrideMax, double propFactor, double hysteresis, 
                 map<int, int> spinUpDelays, map<int, int> spinDownDelays, int* accGraph, int* deaccGraph, int softAccelerationTimeframe, int softAccelerationSamplingInterval, int softAccelerationInitTreshold);
             void setFanSpeed(int pwm);
@@ -139,6 +144,10 @@ enum accelerationType {
         protected:
 
         public:
+			atomic<int>& dataProvider_unfilteredFanPwm = GetTemperature::dataProvider_unfilteredFanPwm;
+			atomic<int>& dataProvider_filteredFanPwm = FanControl::dataProvider_filteredFanPwm;
+			atomic<int>& dataProvider_fanRpm = FanControl::dataProvider_fanRpm;
+
             SetFans(int logicPwmTolerances, vector<string> tempSensorDevice, vector<string> tempSensorNames, vector<int> tempSenseIndex, vector<vector<pair<int, int>>> tempRpmGraph, 
                 string function, int fanPath, int rmpPath, int minPwm, int maxPwm, int startPwm, int avgTimes, bool overrideMax, double propFactor, double hysteresis, OneSenseReadPerCycle* oneSensePc, 
                 bool osrpcState, string fanNamePathOriginal, map<int, int> spinUpDelays, map<int, int> spinDownDelays, int* accGraph, int* deaccGraph, int softAccelerationTimeframe, int softAccelerationSamplingInterval, int softAccelerationInitTreshold) :
